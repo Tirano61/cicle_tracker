@@ -99,7 +99,10 @@ class LocationService {
   void pauseTracking() {
     if (!_currentData.isTracking || _currentData.isPaused) return;
 
-    _currentData = _currentData.copyWith(isPaused: true);
+    _currentData = _currentData.copyWith(
+      isPaused: true,
+      pauseStartTime: DateTime.now(),
+    );
     _trackingController.add(_currentData);
   }
 
@@ -107,7 +110,17 @@ class LocationService {
   void resumeTracking() {
     if (!_currentData.isTracking || !_currentData.isPaused) return;
 
-    _currentData = _currentData.copyWith(isPaused: false);
+    // Calcular tiempo pausado y agregarlo al total
+    Duration additionalPausedTime = Duration.zero;
+    if (_currentData.pauseStartTime != null) {
+      additionalPausedTime = DateTime.now().difference(_currentData.pauseStartTime!);
+    }
+
+    _currentData = _currentData.copyWith(
+      isPaused: false,
+      pauseStartTime: null,
+      totalPausedTime: _currentData.totalPausedTime + additionalPausedTime,
+    );
     _trackingController.add(_currentData);
   }
 
@@ -201,9 +214,18 @@ class LocationService {
     if (!_currentData.isTracking || _currentData.startTime == null) return;
 
     final now = DateTime.now();
-    final elapsed = now.difference(_currentData.startTime!);
+    Duration totalElapsed = now.difference(_currentData.startTime!);
     
-    _currentData = _currentData.copyWith(elapsedTime: elapsed);
+    // Si está pausado, agregar tiempo actual de pausa
+    Duration currentPauseTime = Duration.zero;
+    if (_currentData.isPaused && _currentData.pauseStartTime != null) {
+      currentPauseTime = now.difference(_currentData.pauseStartTime!);
+    }
+    
+    // Tiempo real = tiempo total - tiempo pausado - tiempo pausa actual
+    final realElapsed = totalElapsed - _currentData.totalPausedTime - currentPauseTime;
+    
+    _currentData = _currentData.copyWith(elapsedTime: realElapsed);
     _trackingController.add(_currentData);
   }
 

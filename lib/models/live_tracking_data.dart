@@ -14,6 +14,8 @@ class LiveTrackingData {
   final bool isPaused;
   final DateTime? startTime;
   final DateTime? lastUpdateTime;
+  final DateTime? pauseStartTime;
+  final Duration totalPausedTime;
 
   LiveTrackingData({
     this.currentSpeedKmh = 0.0,
@@ -29,6 +31,8 @@ class LiveTrackingData {
     this.isPaused = false,
     this.startTime,
     this.lastUpdateTime,
+    this.pauseStartTime,
+    this.totalPausedTime = Duration.zero,
   });
 
   // Crear copia con cambios
@@ -46,6 +50,8 @@ class LiveTrackingData {
     bool? isPaused,
     DateTime? startTime,
     DateTime? lastUpdateTime,
+    DateTime? pauseStartTime,
+    Duration? totalPausedTime,
   }) {
     return LiveTrackingData(
       currentSpeedKmh: currentSpeedKmh ?? this.currentSpeedKmh,
@@ -61,6 +67,8 @@ class LiveTrackingData {
       isPaused: isPaused ?? this.isPaused,
       startTime: startTime ?? this.startTime,
       lastUpdateTime: lastUpdateTime ?? this.lastUpdateTime,
+      pauseStartTime: pauseStartTime ?? this.pauseStartTime,
+      totalPausedTime: totalPausedTime ?? this.totalPausedTime,
     );
   }
 
@@ -80,6 +88,8 @@ class LiveTrackingData {
       isPaused: false,
       startTime: null,
       lastUpdateTime: null,
+      pauseStartTime: null,
+      totalPausedTime: Duration.zero,
     );
   }
 

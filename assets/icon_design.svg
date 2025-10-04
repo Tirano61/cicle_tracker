@@ -1,0 +1,95 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <!-- Gradiente futurista morado-azul -->
+    <linearGradient id="hexGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#667eea;stop-opacity:1" />
+      <stop offset="50%" style="stop-color:#764ba2;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#f093fb;stop-opacity:1" />
+    </linearGradient>
+    
+    <!-- Gradiente para la bicicleta -->
+    <linearGradient id="bikeGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#ffffff;stop-opacity:0.95" />
+      <stop offset="100%" style="stop-color:#e0e6ff;stop-opacity:0.9" />
+    </linearGradient>
+    
+    <!-- Sombra -->
+    <filter id="shadow">
+      <feDropShadow dx="0" dy="16" stdDeviation="32" flood-opacity="0.3"/>
+    </filter>
+  </defs>
+  
+  <!-- Hexágono principal - estirado verticalmente -->
+  <polygon points="512,80 900,280 900,744 512,944 124,744 124,280" 
+           fill="url(#hexGradient)" 
+           filter="url(#shadow)"
+           stroke="#4c1d95" 
+           stroke-width="8"/>
+  
+  <!-- Hexágono interno más pequeño con efecto tech -->
+  <polygon points="512,180 820,340 820,684 512,844 204,684 204,340" 
+           fill="none" 
+           stroke="rgba(255,255,255,0.3)" 
+           stroke-width="6"/>
+  
+  <!-- Elementos tech decorativos -->
+  <circle cx="280" cy="400" r="10" fill="rgba(255,255,255,0.6)"/>
+  <circle cx="744" cy="400" r="10" fill="rgba(255,255,255,0.6)"/>
+  <circle cx="280" cy="550" r="10" fill="rgba(255,255,255,0.6)"/>
+  <circle cx="744" cy="550" r="10" fill="rgba(255,255,255,0.6)"/>
+  
+  <!-- Líneas tech -->
+  <line x1="220" y1="430" x2="340" y2="430" stroke="rgba(255,255,255,0.4)" stroke-width="6"/>
+  <line x1="684" y1="430" x2="804" y2="430" stroke="rgba(255,255,255,0.4)" stroke-width="6"/>
+  <line x1="220" y1="470" x2="340" y2="470" stroke="rgba(255,255,255,0.4)" stroke-width="6"/>
+  <line x1="684" y1="470" x2="804" y2="470" stroke="rgba(255,255,255,0.4)" stroke-width="6"/>
+  
+  <!-- BICICLETA MINIMALISTA (ocupando todo el lienzo) -->
+  
+  <!-- Rueda izquierda -->
+  <circle cx="320" cy="720" r="80" fill="none" stroke="url(#bikeGradient)" stroke-width="12"/>
+  <circle cx="320" cy="720" r="60" fill="none" stroke="url(#bikeGradient)" stroke-width="6"/>
+  <circle cx="320" cy="720" r="8" fill="url(#bikeGradient)"/>
+  
+  <!-- Rayos rueda izquierda -->
+  <line x1="320" y1="640" x2="320" y2="800" stroke="url(#bikeGradient)" stroke-width="3"/>
+  <line x1="240" y1="720" x2="400" y2="720" stroke="url(#bikeGradient)" stroke-width="3"/>
+  <line x1="263" y1="663" x2="377" y2="777" stroke="url(#bikeGradient)" stroke-width="3"/>
+  <line x1="377" y1="663" x2="263" y2="777" stroke="url(#bikeGradient)" stroke-width="3"/>
+  
+  <!-- Rueda derecha -->
+  <circle cx="704" cy="720" r="80" fill="none" stroke="url(#bikeGradient)" stroke-width="12"/>
+  <circle cx="704" cy="720" r="60" fill="none" stroke="url(#bikeGradient)" stroke-width="6"/>
+  <circle cx="704" cy="720" r="8" fill="url(#bikeGradient)"/>
+  
+  <!-- Rayos rueda derecha -->
+  <line x1="704" y1="640" x2="704" y2="800" stroke="url(#bikeGradient)" stroke-width="3"/>
+  <line x1="624" y1="720" x2="784" y2="720" stroke="url(#bikeGradient)" stroke-width="3"/>
+  <line x1="647" y1="663" x2="761" y2="777" stroke="url(#bikeGradient)" stroke-width="3"/>
+  <line x1="761" y1="663" x2="647" y2="777" stroke="url(#bikeGradient)" stroke-width="3"/>
+  
+  <!-- Marco de la bicicleta -->
+  <path d="M 320 720 L 512 500 L 704 720 L 630 600 L 512 500 L 394 600 Z" 
+        fill="none" 
+        stroke="url(#bikeGradient)" 
+        stroke-width="14" 
+        stroke-linejoin="round"/>
+  
+  <!-- Manubrio -->
+  <line x1="480" y1="510" x2="544" y2="510" stroke="url(#bikeGradient)" stroke-width="14" stroke-linecap="round"/>
+  
+  <!-- Asiento -->
+  <line x1="620" y1="600" x2="670" y2="600" stroke="url(#bikeGradient)" stroke-width="14" stroke-linecap="round"/>
+  
+  <!-- Pedales -->
+  <circle cx="512" cy="620" r="15" fill="url(#bikeGradient)"/>
+  
+  <!-- Elementos de velocidad (líneas dinámicas) -->
+  <path d="M 780 580 L 860 560" stroke="rgba(255,255,255,0.8)" stroke-width="10" stroke-linecap="round"/>
+  <path d="M 780 620 L 870 600" stroke="rgba(255,255,255,0.7)" stroke-width="8" stroke-linecap="round"/>
+  <path d="M 780 660 L 860 640" stroke="rgba(255,255,255,0.6)" stroke-width="8" stroke-linecap="round"/>
+  
+  <!-- Letra C estilizada en el centro superior -->
+  <text x="512" y="280" font-family="Arial, sans-serif" font-size="100" font-weight="bold" 
+        text-anchor="middle" fill="rgba(255,255,255,0.95)">C</text>
+</svg>

@@ -67,6 +67,116 @@ class CalorieCalculator {
     );
   }
 
+  /// Calcular calorías mejoradas con datos limitados del GPS
+  /// Usa múltiples métodos para obtener el cálculo más preciso posible
+  double calculateCaloriesWithLimitedData({
+    required double weightKg,
+    required Duration elapsedTime,
+    required double totalDistanceKm,
+    required List<double> recentSpeeds,
+    double? currentSpeedKmh,
+  }) {
+    if (elapsedTime.inSeconds == 0) return 0.0;
+
+    final timeHours = elapsedTime.inMinutes / 60.0;
+    
+    // Método 1: Calcular basado en velocidad promedio de distancia/tiempo
+    double avgSpeedFromDistance = 0.0;
+    if (totalDistanceKm > 0) {
+      avgSpeedFromDistance = totalDistanceKm / timeHours;
+    }
+
+    // Método 2: Velocidad promedio móvil de las últimas lecturas GPS
+    double avgSpeedFromGPS = 0.0;
+    if (recentSpeeds.isNotEmpty) {
+      // Usar solo las últimas 10 velocidades para evitar datos antiguos
+      final relevantSpeeds = recentSpeeds.length > 10 
+          ? recentSpeeds.sublist(recentSpeeds.length - 10)
+          : recentSpeeds;
+      
+      // Filtrar velocidades extremas (menores a 1 km/h o mayores a 60 km/h)
+      final filteredSpeeds = relevantSpeeds
+          .where((speed) => speed >= 1.0 && speed <= 60.0)
+          .toList();
+      
+      if (filteredSpeeds.isNotEmpty) {
+        avgSpeedFromGPS = filteredSpeeds.reduce((a, b) => a + b) / filteredSpeeds.length;
+      }
+    }
+
+    // Método 3: Velocidad actual del GPS si está disponible
+    double currentGPSSpeed = currentSpeedKmh ?? 0.0;
+    if (currentGPSSpeed < 1.0 || currentGPSSpeed > 60.0) {
+      currentGPSSpeed = 0.0; // Ignorar si no es realista
+    }
+
+    // Elegir la velocidad más confiable
+    double bestSpeed = _selectBestSpeed(
+      avgSpeedFromDistance, 
+      avgSpeedFromGPS, 
+      currentGPSSpeed,
+      totalDistanceKm,
+      recentSpeeds.length,
+    );
+
+    // Si no hay datos confiables, usar estimación conservadora
+    if (bestSpeed < 1.0) {
+      bestSpeed = _getConservativeSpeedEstimate(totalDistanceKm, timeHours);
+    }
+
+    // Calcular calorías usando la mejor velocidad disponible
+    final calories = calculateCaloriesAdvanced(
+      weightKg: weightKg,
+      speedKmh: bestSpeed,
+      timeHours: timeHours,
+      terrainFactor: 1.1, // Factor ligeramente más alto para compensar incertidumbre
+    );
+
+    return calories;
+  }
+
+  /// Seleccionar la velocidad más confiable entre los métodos disponibles
+  double _selectBestSpeed(
+    double avgSpeedFromDistance,
+    double avgSpeedFromGPS,
+    double currentGPSSpeed,
+    double totalDistance,
+    int gpsReadings,
+  ) {
+    // Si tenemos buena distancia y tiempo, priorizar ese método
+    if (totalDistance > 0.1 && avgSpeedFromDistance > 0 && avgSpeedFromDistance < 50.0) {
+      // Si también tenemos datos GPS, hacer promedio ponderado
+      if (avgSpeedFromGPS > 0 && gpsReadings >= 5) {
+        return (avgSpeedFromDistance * 0.7) + (avgSpeedFromGPS * 0.3);
+      }
+      return avgSpeedFromDistance;
+    }
+
+    // Si el GPS promedio es confiable
+    if (avgSpeedFromGPS > 0 && gpsReadings >= 3) {
+      return avgSpeedFromGPS;
+    }
+
+    // Usar velocidad actual del GPS como último recurso
+    if (currentGPSSpeed > 0) {
+      return currentGPSSpeed;
+    }
+
+    return 0.0;
+  }
+
+  /// Estimación conservadora cuando no hay datos confiables
+  double _getConservativeSpeedEstimate(double distanceKm, double timeHours) {
+    if (distanceKm > 0 && timeHours > 0) {
+      final rawSpeed = distanceKm / timeHours;
+      // Aplicar límites conservadores
+      return rawSpeed.clamp(8.0, 25.0); // Entre 8-25 km/h es razonable para ciclismo
+    }
+    
+    // Si no hay distancia, asumir velocidad mínima de ciclismo recreativo
+    return 12.0; 
+  }
+
   /// Calcular calorías en tiempo real (por minuto)
   double calculateCaloriesPerMinute({
     required double weightKg,
@@ -83,6 +193,71 @@ class CalorieCalculator {
     );
 
     return caloriesPerHour / 60.0; // Calorías por minuto
+  }
+
+  /// Calcular calorías por minuto mejoradas usando datos históricos
+  double calculateCaloriesPerMinuteImproved({
+    required double weightKg,
+    required Duration totalTime,
+    required double totalDistanceKm,
+    required List<double> recentSpeeds,
+    double? currentSpeedKmh,
+    double terrainFactor = 1.0,
+  }) {
+    // Calcular el total de calorías hasta ahora
+    final totalCalories = calculateCaloriesWithLimitedData(
+      weightKg: weightKg,
+      elapsedTime: totalTime,
+      totalDistanceKm: totalDistanceKm,
+      recentSpeeds: recentSpeeds,
+      currentSpeedKmh: currentSpeedKmh,
+    );
+
+    final totalMinutes = totalTime.inMinutes;
+    if (totalMinutes == 0) return 0.0;
+
+    // Retornar calorías por minuto promedio
+    return totalCalories / totalMinutes;
+  }
+
+  /// Estimar calorías para los próximos N segundos basado en patrón actual
+  double estimateCaloriesForInterval({
+    required double weightKg,
+    required List<double> recentSpeeds,
+    required int intervalSeconds,
+    double? currentSpeedKmh,
+  }) {
+    // Determinar velocidad actual más probable
+    double estimatedSpeed = currentSpeedKmh ?? 0.0;
+    
+    if (estimatedSpeed < 1.0 && recentSpeeds.isNotEmpty) {
+      // Usar promedio de las últimas 5 velocidades válidas
+      final validSpeeds = recentSpeeds
+          .where((speed) => speed >= 1.0 && speed <= 60.0)
+          .toList();
+      
+      if (validSpeeds.isNotEmpty) {
+        final recentValidSpeeds = validSpeeds.length > 5 
+            ? validSpeeds.sublist(validSpeeds.length - 5)
+            : validSpeeds;
+        estimatedSpeed = recentValidSpeeds.reduce((a, b) => a + b) / recentValidSpeeds.length;
+      }
+    }
+
+    // Si aún no hay velocidad válida, usar mínima
+    if (estimatedSpeed < 1.0) {
+      estimatedSpeed = 10.0; // 10 km/h como mínimo conservador
+    }
+
+    // Calcular calorías para el intervalo
+    final intervalHours = intervalSeconds / 3600.0;
+    final intervalCalories = calculateCaloriesAdvanced(
+      weightKg: weightKg,
+      speedKmh: estimatedSpeed,
+      timeHours: intervalHours,
+    );
+
+    return intervalCalories;
   }
 
   /// Calcular MET basado en velocidad de ciclismo

@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/user_settings.dart';
+import '../models/map_tile_provider.dart';
 
 class PreferencesService {
   static final PreferencesService _instance = PreferencesService._internal();
@@ -66,5 +67,35 @@ class PreferencesService {
     final settings = await loadUserSettings();
     final updatedSettings = settings.copyWith(gpsUpdateInterval: intervalSeconds);
     return await saveUserSettings(updatedSettings);
+  }
+
+  // Métodos para tipo de mapa
+  static const String _mapProviderKey = 'selected_map_provider';
+
+  Future<MapTileProvider> getMapProvider() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final providerName = prefs.getString(_mapProviderKey);
+      
+      if (providerName != null) {
+        return MapTileProvider.values.firstWhere(
+          (provider) => provider.name == providerName,
+          orElse: () => MapTileProvider.openStreetMap,
+        );
+      }
+    } catch (e) {
+      // Si hay error, retornar por defecto
+    }
+    
+    return MapTileProvider.openStreetMap;
+  }
+
+  Future<bool> saveMapProvider(MapTileProvider provider) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      return await prefs.setString(_mapProviderKey, provider.name);
+    } catch (e) {
+      return false;
+    }
   }
 }

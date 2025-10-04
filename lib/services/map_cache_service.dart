@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:math';
 import 'dart:typed_data';
+import 'package:flutter/foundation.dart';
 import 'package:dio/dio.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as path;
@@ -17,6 +18,9 @@ class MapCacheService {
   static Database? _database;
   static String? _cacheDirectory;
   final Dio _dio = Dio();
+  
+  // Control de cancelación
+  bool _isCancelled = false;
 
   // OpenStreetMap tile server
   static const String tileUrlTemplate = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
@@ -101,12 +105,30 @@ class MapCacheService {
 
   void _configureDio() {
     _dio.options = BaseOptions(
-      connectTimeout: const Duration(seconds: 10),
-      receiveTimeout: const Duration(seconds: 30),
+      connectTimeout: const Duration(seconds: 15),
+      receiveTimeout: const Duration(seconds: 45),
+      sendTimeout: const Duration(seconds: 30),
       headers: {
-        'User-Agent': 'CycleTracker/1.0',
+        'User-Agent': 'CycleTracker/1.0 (+https://github.com/example/cycle-tracker)',
+        'Accept': 'image/png,image/jpeg,image/*,*/*;q=0.8',
+        'Accept-Encoding': 'gzip, deflate',
+        'Cache-Control': 'no-cache',
       },
     );
+    
+    // Configurar interceptores para logging y retry
+    _dio.interceptors.add(InterceptorsWrapper(
+      onRequest: (options, handler) {
+        // Delay mínimo para WiFi rápido
+        Future.delayed(Duration(milliseconds: Random().nextInt(20))).then((_) {
+          handler.next(options);
+        });
+      },
+      onError: (error, handler) {
+        print('HTTP Error: ${error.message}');
+        handler.next(error);
+      },
+    ));
   }
 
   // Crear nueva área para descargar
@@ -208,7 +230,7 @@ class MapCacheService {
     }
   }
 
-  // Descargar tile individual
+  // Descargar tile individual con manejo mejorado de errores
   Future<int> _downloadTile(int x, int y, int z, String areaId) async {
     final tileId = '${z}_${x}_$y';
     
@@ -220,7 +242,19 @@ class MapCacheService {
     );
     
     if (existingTiles.isNotEmpty) {
-      return 0; // Ya descargado
+      // Verificar que el archivo físico existe
+      final filePath = existingTiles.first['filePath'] as String;
+      final file = File(filePath);
+      if (await file.exists()) {
+        return existingTiles.first['sizeBytes'] as int; // Ya descargado
+      } else {
+        // Archivo no existe, limpiar de DB y re-descargar
+        await _database!.delete(
+          'cached_tiles',
+          where: 'x = ? AND y = ? AND z = ?',
+          whereArgs: [x, y, z],
+        );
+      }
     }
 
     final url = tileUrlTemplate
@@ -228,31 +262,46 @@ class MapCacheService {
         .replaceAll('{x}', x.toString())
         .replaceAll('{y}', y.toString());
 
-    final response = await _dio.get<Uint8List>(
-      url,
-      options: Options(responseType: ResponseType.bytes),
-    );
+    try {
+      final response = await _dio.get<Uint8List>(
+        url,
+        options: Options(
+          responseType: ResponseType.bytes,
+          sendTimeout: const Duration(seconds: 30),
+          receiveTimeout: const Duration(seconds: 45),
+        ),
+      );
 
-    if (response.statusCode == 200 && response.data != null) {
-      final fileName = '${tileId}.png';
-      final filePath = path.join(_cacheDirectory!, fileName);
-      
-      final file = File(filePath);
-      await file.writeAsBytes(response.data!);
-      
-      // Guardar metadata en DB
-      await _database!.insert('cached_tiles', {
-        'id': tileId,
-        'areaId': areaId,
-        'x': x,
-        'y': y,
-        'z': z,
-        'filePath': filePath,
-        'downloadedAt': DateTime.now().millisecondsSinceEpoch,
-        'sizeBytes': response.data!.length,
-      });
+      if (response.statusCode == 200 && response.data != null && response.data!.isNotEmpty) {
+        final fileName = '${tileId}.png';
+        final filePath = path.join(_cacheDirectory!, fileName);
+        
+        final file = File(filePath);
+        await file.writeAsBytes(response.data!);
+        
+        // Verificar que el archivo se escribió correctamente
+        if (await file.exists()) {
+          // Guardar metadata en DB
+          await _database!.insert('cached_tiles', {
+            'id': tileId,
+            'areaId': areaId,
+            'x': x,
+            'y': y,
+            'z': z,
+            'filePath': filePath,
+            'downloadedAt': DateTime.now().millisecondsSinceEpoch,
+            'sizeBytes': response.data!.length,
+          }, conflictAlgorithm: ConflictAlgorithm.replace);
 
-      return response.data!.length;
+          return response.data!.length;
+        }
+      } else {
+        print('Invalid response for tile $x,$y,$z: status=${response.statusCode}');
+      }
+    } catch (e) {
+      print('Network error downloading tile $x,$y,$z: $e');
+      // Re-throw para que el retry handler lo maneje
+      rethrow;
     }
 
     return 0;
@@ -373,8 +422,188 @@ class MapCacheService {
     );
   }
 
+  // Descargar región específica por coordenadas (método optimizado sin bloquear UI)
+  Future<void> downloadRegion(
+    double minLat,
+    double maxLat,
+    double minLng,
+    double maxLng, {
+    int minZoom = defaultMinZoom,
+    int maxZoom = defaultMaxZoom,
+    Function(int downloaded, int total)? onProgress,
+  }) async {
+    // Resetear estado de cancelación
+    _resetCancellation();
+    
+    // Usar batches más grandes para WiFi de alta velocidad
+    const int batchSize = 50; // Descargar 50 tiles por batch (optimizado para WiFi)
+    
+    // Crear área temporal
+    final tempId = 'temp_${DateTime.now().millisecondsSinceEpoch}';
+    
+    int totalTiles = 0;
+    int downloadedTiles = 0;
+    
+    // Calcular total de tiles
+    for (int zoom = minZoom; zoom <= maxZoom; zoom++) {
+      final tiles = _getTilesForRegion(minLat, maxLat, minLng, maxLng, zoom);
+      totalTiles += tiles.length;
+    }
+    
+    // Reportar progreso inicial
+    onProgress?.call(0, totalTiles);
+    
+    // Descargar por nivel de zoom en batches
+    for (int zoom = minZoom; zoom <= maxZoom; zoom++) {
+      final tiles = _getTilesForRegion(minLat, maxLat, minLng, maxLng, zoom);
+      
+      // Dividir en batches para no bloquear la UI
+      for (int i = 0; i < tiles.length; i += batchSize) {
+        final endIndex = (i + batchSize < tiles.length) ? i + batchSize : tiles.length;
+        final batch = tiles.sublist(i, endIndex);
+        
+        // Verificar si la descarga fue cancelada
+        if (_isCancelled) {
+          print('Download cancelled by user');
+          return;
+        }
+        
+        // Descargar batch en paralelo pero con limite
+        final futures = batch.map((tile) => 
+          _downloadTileWithRetry(tile['x']!, tile['y']!, zoom, tempId)
+        ).toList();
+        
+        try {
+          final results = await Future.wait(futures);
+          
+          // Contar solo los tiles realmente descargados (no los que ya existían)
+          final actualDownloads = results.where((size) => size > 0).length;
+          downloadedTiles += batch.length; // Para progreso total
+          
+          // Mostrar información útil sobre tiles ya existentes vs nuevos
+          if (actualDownloads < batch.length) {
+            final existing = batch.length - actualDownloads;
+            print('Batch: ${actualDownloads} nuevos, ${existing} ya existían');
+          }
+          
+          // Reportar progreso después de cada batch
+          onProgress?.call(downloadedTiles, totalTiles);
+          
+          // Pausa mínima para WiFi de alta velocidad
+          await Future.delayed(const Duration(milliseconds: 10));
+          
+        } catch (e) {
+          if (_isCancelled) {
+            print('Download cancelled during batch processing');
+            return;
+          }
+          print('Error downloading batch: $e');
+          // Continuar con el siguiente batch
+          downloadedTiles += batch.length; // Contar como completado para progreso
+          onProgress?.call(downloadedTiles, totalTiles);
+        }
+      }
+    }
+  }
+
+  // Método con reintentos para tiles individuales
+  Future<int> _downloadTileWithRetry(int x, int y, int z, String areaId, {int maxRetries = 2}) async {
+    for (int attempt = 0; attempt <= maxRetries; attempt++) {
+      try {
+        return await _downloadTile(x, y, z, areaId);
+      } catch (e) {
+        if (attempt == maxRetries) {
+          print('Failed to download tile after $maxRetries retries: ${x},${y},${z}');
+          return 0; // Falló definitivamente
+        }
+        // Esperar un poco antes del siguiente intento
+        await Future.delayed(Duration(milliseconds: 500 * (attempt + 1)));
+      }
+    }
+    return 0;
+  }
+
+  // Obtener tiles para una región específica
+  List<Map<String, int>> _getTilesForRegion(double minLat, double maxLat, double minLng, double maxLng, int zoom) {
+    final tiles = <Map<String, int>>[];
+    final scale = 1 << zoom;
+    
+    final x1 = ((minLng + 180.0) / 360.0 * scale).floor();
+    final x2 = ((maxLng + 180.0) / 360.0 * scale).floor();
+    
+    final lat1Rad = minLat * (pi / 180.0);
+    final lat2Rad = maxLat * (pi / 180.0);
+    
+    final y1 = ((1.0 - log(tan(lat1Rad) + (1.0 / cos(lat1Rad))) / pi) / 2.0 * scale).floor();
+    final y2 = ((1.0 - log(tan(lat2Rad) + (1.0 / cos(lat2Rad))) / pi) / 2.0 * scale).floor();
+    
+    for (int x = x1; x <= x2; x++) {
+      for (int y = y2; y <= y1; y++) {
+        tiles.add({'x': x, 'y': y});
+      }
+    }
+    
+    return tiles;
+  }
+
+  // Cancelar descarga actual
+  void cancelDownload() {
+    _isCancelled = true;
+    print('Download cancellation requested');
+  }
+  
+  // Resetear estado de cancelación (llamar antes de iniciar nueva descarga)
+  void _resetCancellation() {
+    _isCancelled = false;
+  }
+  
+  // Verificar si hay una descarga en progreso
+  bool get isDownloading => !_isCancelled;
+
+  // Verificar si una región está completamente descargada
+  Future<bool> isRegionComplete(
+    double minLat,
+    double maxLat,
+    double minLng,
+    double maxLng, {
+    int minZoom = defaultMinZoom,
+    int maxZoom = defaultMaxZoom,
+  }) async {
+    int totalExpected = 0;
+    int totalExists = 0;
+
+    for (int zoom = minZoom; zoom <= maxZoom; zoom++) {
+      final tiles = _getTilesForRegion(minLat, maxLat, minLng, maxLng, zoom);
+      totalExpected += tiles.length;
+      
+      for (final tile in tiles) {
+        final existingTiles = await _database!.query(
+          'cached_tiles',
+          where: 'x = ? AND y = ? AND z = ?',
+          whereArgs: [tile['x'], tile['y'], zoom],
+        );
+        
+        if (existingTiles.isNotEmpty) {
+          // Verificar que el archivo físico existe
+          final filePath = existingTiles.first['filePath'] as String;
+          final file = File(filePath);
+          if (await file.exists()) {
+            totalExists++;
+          }
+        }
+      }
+    }
+
+    final completionPercentage = totalExpected > 0 ? (totalExists / totalExpected) * 100 : 0;
+    print('Región: ${totalExists}/${totalExpected} tiles (${completionPercentage.toStringAsFixed(1)}%)');
+    
+    // Considerar completo si tiene al menos 95% de los tiles
+    return completionPercentage >= 95.0;
+  }
+
   // Cerrar servicio
   Future<void> dispose() async {
+    _isCancelled = true;
     await _downloadProgressController.close();
     await _database?.close();
     _database = null;

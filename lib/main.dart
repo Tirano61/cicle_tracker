@@ -1,12 +1,20 @@
 import 'package:flutter/material.dart';
 import 'screens/tracking_screen.dart';
+import 'widgets/splash_screen.dart';
 
 void main() {
   runApp(const CycleApp());
 }
 
-class CycleApp extends StatelessWidget {
+class CycleApp extends StatefulWidget {
   const CycleApp({super.key});
+
+  @override
+  State<CycleApp> createState() => _CycleAppState();
+}
+
+class _CycleAppState extends State<CycleApp> {
+  bool _showSplash = true;
 
   @override
   Widget build(BuildContext context) {
@@ -38,7 +46,15 @@ class CycleApp extends StatelessWidget {
           ),
         ),
       ),
-      home: const TrackingScreen(),
+      home: _showSplash 
+        ? SplashScreen(
+            onSplashComplete: () {
+              setState(() {
+                _showSplash = false;
+              });
+            },
+          )
+        : const TrackingScreen(),
     );
   }
 }

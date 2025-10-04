@@ -30,63 +30,63 @@ class MetricsPanel extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
+          // Velocidad actual prominente
+          _buildSpeedCard(
+            value: trackingData.currentSpeedKmh.toStringAsFixed(1),
+            unit: _getSpeedUnit(),
+          ),
+          
+          const SizedBox(height: 16),
+          
           // Fila principal de métricas
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceEvenly,
             children: [
-              _buildMetricCard(
-                title: 'Velocidad',
-                value: trackingData.currentSpeedKmh.toStringAsFixed(1),
-                unit: _getSpeedUnit(),
-                color: Colors.blue,
-                icon: Icons.speed,
-              ),
-              _buildMetricCard(
+              _buildCompactMetricCard(
                 title: 'Distancia',
                 value: _formatDistance(trackingData.distanceKm),
                 unit: _getDistanceUnit(),
-                color: Colors.green,
+                color: Colors.grey[800]!,
                 icon: Icons.straighten,
               ),
-              _buildMetricCard(
+              _buildCompactMetricCard(
                 title: 'Tiempo',
                 value: _formatDuration(trackingData.elapsedTime),
                 unit: '',
-                color: Colors.orange,
+                color: Colors.grey[800]!,
                 icon: Icons.access_time,
+              ),
+              _buildCompactMetricCard(
+                title: 'Calorías',
+                value: trackingData.caloriesBurned.toStringAsFixed(0),
+                unit: 'kcal',
+                color: Colors.grey[800]!,
+                icon: Icons.local_fire_department,
               ),
             ],
           ),
           
-          const SizedBox(height: 16),
+          const SizedBox(height: 12),
           
           // Fila secundaria de métricas
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceEvenly,
             children: [
-              _buildMetricCard(
+              _buildCompactMetricCard(
                 title: 'Velocidad Media',
                 value: trackingData.averageSpeedKmh.toStringAsFixed(1),
                 unit: _getSpeedUnit(),
-                color: Colors.purple,
+                color: Colors.grey[700]!,
                 icon: Icons.trending_up,
-                isSmall: true,
+                isSmaller: true,
               ),
-              _buildMetricCard(
+              _buildCompactMetricCard(
                 title: 'Vel. Máxima',
                 value: trackingData.maxSpeedKmh.toStringAsFixed(1),
                 unit: _getSpeedUnit(),
-                color: Colors.red,
+                color: Colors.grey[700]!,
                 icon: Icons.flash_on,
-                isSmall: true,
-              ),
-              _buildMetricCard(
-                title: 'Calorías',
-                value: trackingData.caloriesBurned.toStringAsFixed(0),
-                unit: 'kcal',
-                color: Colors.pink,
-                icon: Icons.local_fire_department,
-                isSmall: true,
+                isSmaller: true,
               ),
             ],
           ),
@@ -125,68 +125,122 @@ class MetricsPanel extends StatelessWidget {
     );
   }
 
-  Widget _buildMetricCard({
+  // Tarjeta de velocidad prominente
+  Widget _buildSpeedCard({
+    required String value,
+    required String unit,
+  }) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 24),
+      decoration: BoxDecoration(
+        color: Colors.grey[100],
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.grey[800]!, width: 2),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          Icon(
+            Icons.speed,
+            color: Colors.grey[800],
+            size: 36,
+          ),
+          const SizedBox(width: 20),
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: 56,
+              fontWeight: FontWeight.bold,
+              color: Colors.grey[900],
+            ),
+          ),
+          const SizedBox(width: 8),
+          Padding(
+            padding: const EdgeInsets.only(bottom: 12.0),
+            child: Text(
+              unit,
+              style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.w600,
+                color: Colors.grey[700],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // Tarjetas compactas con icono a la izquierda
+  Widget _buildCompactMetricCard({
     required String title,
     required String value,
     required String unit,
     required Color color,
     required IconData icon,
-    bool isSmall = false,
+    bool isSmaller = false,
   }) {
     return Expanded(
       child: Container(
-        margin: EdgeInsets.symmetric(horizontal: isSmall ? 2 : 4),
-        padding: EdgeInsets.all(isSmall ? 8 : 12),
+        margin: const EdgeInsets.symmetric(horizontal: 4),
+        padding: EdgeInsets.all(isSmaller ? 8 : 12),
         decoration: BoxDecoration(
-          color: color.withOpacity(0.1),
+          color: Colors.grey[50],
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: color.withOpacity(0.3)),
+          border: Border.all(color: Colors.grey[300]!),
         ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
+        child: Row(
           children: [
             Icon(
               icon,
               color: color,
-              size: isSmall ? 20 : 24,
+              size: isSmaller ? 18 : 22,
             ),
-            SizedBox(height: isSmall ? 4 : 8),
-            Text(
-              title,
-              style: TextStyle(
-                fontSize: isSmall ? 10 : 12,
-                fontWeight: FontWeight.w600,
-                color: Colors.grey[600],
-              ),
-              textAlign: TextAlign.center,
-            ),
-            SizedBox(height: isSmall ? 2 : 4),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                Flexible(
-                  child: Text(
-                    value,
-                    style: TextStyle(
-                      fontSize: isSmall ? 16 : 20,
-                      fontWeight: FontWeight.bold,
-                      color: color,
-                    ),
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-                if (unit.isNotEmpty) ...[
-                  const SizedBox(width: 2),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
                   Text(
-                    unit,
+                    title,
                     style: TextStyle(
-                      fontSize: isSmall ? 10 : 12,
-                      color: color.withOpacity(0.8),
+                      fontSize: isSmaller ? 10 : 11,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.grey[600],
                     ),
+                  ),
+                  const SizedBox(height: 2),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      Flexible(
+                        child: Text(
+                          value,
+                          style: TextStyle(
+                            fontSize: isSmaller ? 14 : 16,
+                            fontWeight: FontWeight.bold,
+                            color: color,
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      if (unit.isNotEmpty) ...[
+                        const SizedBox(width: 2),
+                        Text(
+                          unit,
+                          style: TextStyle(
+                            fontSize: isSmaller ? 9 : 10,
+                            color: color.withOpacity(0.8),
+                          ),
+                        ),
+                      ],
+                    ],
                   ),
                 ],
-              ],
+              ),
             ),
           ],
         ),
