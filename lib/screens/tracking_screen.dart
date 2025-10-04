@@ -12,8 +12,11 @@ import '../models/user_settings.dart';
 import '../widgets/metrics_panel.dart';
 import '../widgets/tracking_controls.dart';
 import '../widgets/cached_tile_layer.dart';
+import '../widgets/map_provider_selector.dart';
+import '../models/map_tile_provider.dart';
 import 'history_screen.dart';
 import 'settings_screen.dart';
+import 'argentina_download_screen.dart';
 
 class TrackingScreen extends StatefulWidget {
   const TrackingScreen({super.key});
@@ -33,8 +36,10 @@ class _TrackingScreenState extends State<TrackingScreen> {
   
   LiveTrackingData _trackingData = LiveTrackingData();
   UserSettings _userSettings = UserSettings();
+  MapTileProvider _currentMapProvider = MapTileProvider.openStreetMap;
   bool _isMapReady = false;
   Timer? _calorieTimer;
+  Timer? _recalculateTimer;
 
   @override
   void initState() {
@@ -48,14 +53,17 @@ class _TrackingScreenState extends State<TrackingScreen> {
   void dispose() {
     _trackingSubscription?.cancel();
     _calorieTimer?.cancel();
+    _recalculateTimer?.cancel();
     _locationService.dispose();
     super.dispose();
   }
 
   Future<void> _loadUserSettings() async {
     final settings = await _preferencesService.loadUserSettings();
+    final mapProvider = await _preferencesService.getMapProvider();
     setState(() {
       _userSettings = settings;
+      _currentMapProvider = mapProvider;
     });
   }
 
@@ -94,12 +102,20 @@ class _TrackingScreenState extends State<TrackingScreen> {
       }
     });
 
+    // Iniciar timer para recálculo periódico de precisión (cada minuto)
+    _recalculateTimer = Timer.periodic(const Duration(minutes: 1), (timer) {
+      if (_trackingData.isTracking) {
+        _recalculateCalories();
+      }
+    });
+
     _showSnackBar('¡Tracking iniciado!', Colors.green);
   }
 
   void _pauseTracking() {
     _locationService.pauseTracking();
     _calorieTimer?.cancel();
+    _recalculateTimer?.cancel();
     _showSnackBar('Tracking pausado', Colors.orange);
   }
 
@@ -113,12 +129,20 @@ class _TrackingScreenState extends State<TrackingScreen> {
       }
     });
 
+    // Reiniciar timer de recálculo
+    _recalculateTimer = Timer.periodic(const Duration(minutes: 1), (timer) {
+      if (_trackingData.isTracking) {
+        _recalculateCalories();
+      }
+    });
+
     _showSnackBar('Tracking reanudado', Colors.green);
   }
 
   Future<void> _stopTracking() async {
     _locationService.stopTracking();
     _calorieTimer?.cancel();
+    _recalculateTimer?.cancel();
 
     // Guardar sesión si hay datos válidos
     if (_trackingData.distanceKm > 0.1 && _trackingData.elapsedTime.inMinutes > 1) {
@@ -133,15 +157,38 @@ class _TrackingScreenState extends State<TrackingScreen> {
   void _updateCalories() {
     if (!_trackingData.isTracking || _trackingData.isPaused) return;
 
-    final caloriesPerMinute = _calorieCalculator.calculateCaloriesPerMinute(
+    // Usar el método mejorado que funciona mejor con datos limitados del GPS
+    final intervalCalories = _calorieCalculator.estimateCaloriesForInterval(
       weightKg: _userSettings.weightKg,
-      currentSpeedKmh: _trackingData.currentSpeedKmh,
+      recentSpeeds: _trackingData.speeds,
+      intervalSeconds: 5, // Actualización cada 5 segundos
+      currentSpeedKmh: _trackingData.currentSpeedKmh > 1.0 
+          ? _trackingData.currentSpeedKmh 
+          : null,
     );
 
-    final newCalories = _trackingData.caloriesBurned + (caloriesPerMinute / 12); // 5 segundos
+    final newCalories = _trackingData.caloriesBurned + intervalCalories;
 
     setState(() {
       _trackingData = _trackingData.copyWith(caloriesBurned: newCalories);
+    });
+  }
+
+  /// Recalcular calorías totales usando todos los datos disponibles
+  /// Se llama periódicamente para corregir la precisión
+  void _recalculateCalories() {
+    if (!_trackingData.isTracking) return;
+
+    final totalCalories = _calorieCalculator.calculateCaloriesWithLimitedData(
+      weightKg: _userSettings.weightKg,
+      elapsedTime: _trackingData.elapsedTime,
+      totalDistanceKm: _trackingData.distanceKm,
+      recentSpeeds: _trackingData.speeds,
+      currentSpeedKmh: _trackingData.currentSpeedKmh,
+    );
+
+    setState(() {
+      _trackingData = _trackingData.copyWith(caloriesBurned: totalCalories);
     });
   }
 
@@ -178,6 +225,20 @@ class _TrackingScreenState extends State<TrackingScreen> {
     );
   }
 
+  Future<void> _changeMapProvider(MapTileProvider newProvider) async {
+    if (newProvider != _currentMapProvider) {
+      setState(() {
+        _currentMapProvider = newProvider;
+      });
+      
+      // Guardar la preferencia
+      await _preferencesService.saveMapProvider(newProvider);
+      
+      // Mostrar confirmación
+      _showSnackBar('Mapa cambiado a ${newProvider.name}', Colors.blue);
+    }
+  }
+
   void _showSnackBar(String message, Color color) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -211,6 +272,20 @@ class _TrackingScreenState extends State<TrackingScreen> {
         actions: [
           // Indicador de estado de mapas
           _buildConnectionIndicator(),
+          // Selector de tipo de mapa
+          MapProviderSelector(
+            currentProvider: _currentMapProvider,
+            onProviderChanged: _changeMapProvider,
+            isCompact: true,
+          ),
+          IconButton(
+            icon: const Icon(Icons.download),
+            tooltip: 'Descargar Argentina',
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (context) => const ArgentinaDownloadScreen()),
+            ),
+          ),
           IconButton(
             icon: const Icon(Icons.history),
             onPressed: () => Navigator.push(
@@ -244,6 +319,7 @@ class _TrackingScreenState extends State<TrackingScreen> {
               ),
               children: [
                 CachedTileLayer(
+                  tileProvider: _currentMapProvider,
                   userAgentPackageName: 'com.example.cicle_app',
                 ),
                 // Ruta recorrida

@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Convertidor SVG a PNG - Cicle App Icon</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+        }
+        .preview {
+            text-align: center;
+            margin: 20px 0;
+        }
+        #svgContainer {
+            border: 2px dashed #ccc;
+            padding: 20px;
+            margin: 20px 0;
+        }
+        button {
+            background: #667eea;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 16px;
+            margin: 10px;
+        }
+        button:hover {
+            background: #5a6fd8;
+        }
+        .size-buttons {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            justify-content: center;
+        }
+        canvas {
+            border: 1px solid #ddd;
+            margin: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🚴‍♂️ Convertidor de Ícono Cicle App</h1>
+        <p>Esta herramienta convierte el diseño SVG de la app a PNG en diferentes tamaños.</p>
+        
+        <div id="svgContainer">
+            <svg id="iconSvg" width="200" height="200" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+              <defs>
+                <!-- Gradiente futurista morado-azul -->
+                <linearGradient id="hexGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" style="stop-color:#667eea;stop-opacity:1" />
+                  <stop offset="50%" style="stop-color:#764ba2;stop-opacity:1" />
+                  <stop offset="100%" style="stop-color:#f093fb;stop-opacity:1" />
+                </linearGradient>
+                
+                <!-- Gradiente para la bicicleta -->
+                <linearGradient id="bikeGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" style="stop-color:#ffffff;stop-opacity:0.95" />
+                  <stop offset="100%" style="stop-color:#e0e6ff;stop-opacity:0.9" />
+                </linearGradient>
+                
+                <!-- Sombra -->
+                <filter id="shadow">
+                  <feDropShadow dx="0" dy="16" stdDeviation="32" flood-opacity="0.3"/>
+                </filter>
+              </defs>
+              
+              <!-- Hexágono principal - estirado verticalmente -->
+              <polygon points="512,80 900,280 900,744 512,944 124,744 124,280" 
+                       fill="url(#hexGradient)" 
+                       filter="url(#shadow)"
+                       stroke="#4c1d95" 
+                       stroke-width="8"/>
+              
+              <!-- Hexágono interno más pequeño con efecto tech -->
+              <polygon points="512,180 820,340 820,684 512,844 204,684 204,340" 
+                       fill="none" 
+                       stroke="rgba(255,255,255,0.3)" 
+                       stroke-width="6"/>
+              
+              <!-- Elementos tech decorativos -->
+              <circle cx="280" cy="400" r="10" fill="rgba(255,255,255,0.6)"/>
+              <circle cx="744" cy="400" r="10" fill="rgba(255,255,255,0.6)"/>
+              <circle cx="280" cy="550" r="10" fill="rgba(255,255,255,0.6)"/>
+              <circle cx="744" cy="550" r="10" fill="rgba(255,255,255,0.6)"/>
+              
+              <!-- Líneas tech -->
+              <line x1="220" y1="430" x2="340" y2="430" stroke="rgba(255,255,255,0.4)" stroke-width="6"/>
+              <line x1="684" y1="430" x2="804" y2="430" stroke="rgba(255,255,255,0.4)" stroke-width="6"/>
+              <line x1="220" y1="470" x2="340" y2="470" stroke="rgba(255,255,255,0.4)" stroke-width="6"/>
+              <line x1="684" y1="470" x2="804" y2="470" stroke="rgba(255,255,255,0.4)" stroke-width="6"/>
+
+              <!-- BICICLETA MINIMALISTA (ocupando todo el lienzo) -->
+              
+              <!-- Rueda izquierda -->
+              <circle cx="320" cy="720" r="80" fill="none" stroke="url(#bikeGradient)" stroke-width="12"/>
+              <circle cx="320" cy="720" r="60" fill="none" stroke="url(#bikeGradient)" stroke-width="6"/>
+              <circle cx="320" cy="720" r="8" fill="url(#bikeGradient)"/>
+              
+              <!-- Rayos rueda izquierda -->
+              <line x1="320" y1="640" x2="320" y2="800" stroke="url(#bikeGradient)" stroke-width="3"/>
+              <line x1="240" y1="720" x2="400" y2="720" stroke="url(#bikeGradient)" stroke-width="3"/>
+              <line x1="263" y1="663" x2="377" y2="777" stroke="url(#bikeGradient)" stroke-width="3"/>
+              <line x1="377" y1="663" x2="263" y2="777" stroke="url(#bikeGradient)" stroke-width="3"/>
+              
+              <!-- Rueda derecha -->
+              <circle cx="704" cy="720" r="80" fill="none" stroke="url(#bikeGradient)" stroke-width="12"/>
+              <circle cx="704" cy="720" r="60" fill="none" stroke="url(#bikeGradient)" stroke-width="6"/>
+              <circle cx="704" cy="720" r="8" fill="url(#bikeGradient)"/>
+              
+              <!-- Rayos rueda derecha -->
+              <line x1="704" y1="640" x2="704" y2="800" stroke="url(#bikeGradient)" stroke-width="3"/>
+              <line x1="624" y1="720" x2="784" y2="720" stroke="url(#bikeGradient)" stroke-width="3"/>
+              <line x1="647" y1="663" x2="761" y2="777" stroke="url(#bikeGradient)" stroke-width="3"/>
+              <line x1="761" y1="663" x2="647" y2="777" stroke="url(#bikeGradient)" stroke-width="3"/>
+              
+              <!-- Marco de la bicicleta -->
+              <path d="M 320 720 L 512 500 L 704 720 L 630 600 L 512 500 L 394 600 Z" 
+                    fill="none" 
+                    stroke="url(#bikeGradient)" 
+                    stroke-width="14" 
+                    stroke-linejoin="round"/>
+              
+              <!-- Manubrio -->
+              <line x1="480" y1="510" x2="544" y2="510" stroke="url(#bikeGradient)" stroke-width="14" stroke-linecap="round"/>
+              
+              <!-- Asiento -->
+              <line x1="620" y1="600" x2="670" y2="600" stroke="url(#bikeGradient)" stroke-width="14" stroke-linecap="round"/>
+              
+              <!-- Pedales -->
+              <circle cx="512" cy="620" r="15" fill="url(#bikeGradient)"/>
+              
+              <!-- Elementos de velocidad (líneas dinámicas) -->
+              <path d="M 780 580 L 860 560" stroke="rgba(255,255,255,0.8)" stroke-width="10" stroke-linecap="round"/>
+              <path d="M 780 620 L 870 600" stroke="rgba(255,255,255,0.7)" stroke-width="8" stroke-linecap="round"/>
+              <path d="M 780 660 L 860 640" stroke="rgba(255,255,255,0.6)" stroke-width="8" stroke-linecap="round"/>
+              
+              <!-- Letra C estilizada en el centro superior -->
+              <text x="512" y="280" font-family="Arial, sans-serif" font-size="100" font-weight="bold" 
+                    text-anchor="middle" fill="rgba(255,255,255,0.95)">C</text>
+            </svg>
+        </div>
+
+        <div class="size-buttons">
+            <button onclick="generatePNG(48)">48x48 (mdpi)</button>
+            <button onclick="generatePNG(72)">72x72 (hdpi)</button>
+            <button onclick="generatePNG(96)">96x96 (xhdpi)</button>
+            <button onclick="generatePNG(144)">144x144 (xxhdpi)</button>
+            <button onclick="generatePNG(192)">192x192 (xxxhdpi)</button>
+            <button onclick="generatePNG(512)">512x512 (Play Store)</button>
+            <button onclick="generatePNG(1024)">1024x1024 (Original)</button>
+        </div>
+
+        <div id="canvasContainer"></div>
+
+        <div class="instructions">
+            <h3>📖 Instrucciones:</h3>
+            <ol>
+                <li>Haz clic en el tamaño que necesites</li>
+                <li>Se generará un canvas con la imagen PNG</li>
+                <li>Haz clic derecho en la imagen → "Guardar imagen como..."</li>
+                <li>Guarda con el nombre: <code>ic_launcher.png</code></li>
+                <li>Copia a la carpeta correspondiente en Android</li>
+            </ol>
+        </div>
+    </div>
+
+    <script>
+        function generatePNG(size) {
+            const svg = document.getElementById('iconSvg');
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            
+            canvas.width = size;
+            canvas.height = size;
+            
+            // Crear imagen desde SVG
+            const svgData = new XMLSerializer().serializeToString(svg);
+            const svgBlob = new Blob([svgData], {type: 'image/svg+xml;charset=utf-8'});
+            const url = URL.createObjectURL(svgBlob);
+            
+            const img = new Image();
+            img.onload = function() {
+                // Limpiar canvas con fondo transparente
+                ctx.clearRect(0, 0, size, size);
+                
+                // Dibujar SVG escalado
+                ctx.drawImage(img, 0, 0, size, size);
+                
+                // Mostrar canvas
+                const container = document.getElementById('canvasContainer');
+                const existingCanvas = container.querySelector('canvas');
+                if (existingCanvas) {
+                    container.removeChild(existingCanvas);
+                }
+                
+                const label = document.createElement('p');
+                label.textContent = `${size}x${size} PNG (Clic derecho → Guardar imagen como...)`;
+                label.style.textAlign = 'center';
+                label.style.margin = '10px 0';
+                
+                if (container.querySelector('p')) {
+                    container.removeChild(container.querySelector('p'));
+                }
+                
+                container.appendChild(label);
+                container.appendChild(canvas);
+                
+                URL.revokeObjectURL(url);
+            };
+            
+            img.src = url;
+        }
+    </script>
+</body>
+</html>

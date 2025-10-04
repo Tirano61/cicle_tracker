@@ -21,7 +21,7 @@ class TrackingControls extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       decoration: BoxDecoration(
         color: Colors.white,
         boxShadow: [
@@ -38,30 +38,27 @@ class TrackingControls extends StatelessWidget {
           mainAxisAlignment: MainAxisAlignment.spaceEvenly,
           children: [
             if (!isTracking) 
-              _buildControlButton(
+              _buildCompactButton(
                 onPressed: onStart,
                 icon: Icons.play_arrow,
                 label: 'Iniciar',
                 color: Colors.green,
-                size: 60,
               )
             else ...[
               // Botón de pausa/reanudar
-              _buildControlButton(
+              _buildCompactButton(
                 onPressed: isPaused ? onResume : onPause,
                 icon: isPaused ? Icons.play_arrow : Icons.pause,
                 label: isPaused ? 'Reanudar' : 'Pausar',
                 color: isPaused ? Colors.green : Colors.orange,
-                size: 50,
               ),
               
               // Botón de parar
-              _buildControlButton(
+              _buildCompactButton(
                 onPressed: () => _showStopConfirmation(context),
                 icon: Icons.stop,
                 label: 'Finalizar',
                 color: Colors.red,
-                size: 50,
               ),
             ],
           ],
@@ -70,47 +67,35 @@ class TrackingControls extends StatelessWidget {
     );
   }
 
-  Widget _buildControlButton({
+  Widget _buildCompactButton({
     required VoidCallback onPressed,
     required IconData icon,
     required String label,
     required Color color,
-    required double size,
   }) {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Material(
+    return TextButton.icon(
+      onPressed: onPressed,
+      icon: Icon(
+        icon,
+        color: color,
+        size: 18,
+      ),
+      label: Text(
+        label,
+        style: TextStyle(
           color: color,
-          shape: const CircleBorder(),
-          elevation: 4,
-          child: InkWell(
-            onTap: onPressed,
-            customBorder: const CircleBorder(),
-            child: Container(
-              width: size,
-              height: size,
-              decoration: const BoxDecoration(
-                shape: BoxShape.circle,
-              ),
-              child: Icon(
-                icon,
-                color: Colors.white,
-                size: size * 0.5,
-              ),
-            ),
-          ),
+          fontWeight: FontWeight.w600,
+          fontSize: 14,
         ),
-        const SizedBox(height: 8),
-        Text(
-          label,
-          style: TextStyle(
-            fontSize: 12,
-            fontWeight: FontWeight.w600,
-            color: color,
-          ),
+      ),
+      style: TextButton.styleFrom(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        backgroundColor: color.withOpacity(0.1),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(20),
+          side: BorderSide(color: color.withOpacity(0.3)),
         ),
-      ],
+      ),
     );
   }
 
