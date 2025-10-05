@@ -1,4 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <!-- Color del fondo del launcher/adaptative icon -->
     <color name="ic_launcher_background">#667eea</color>
+    <!-- Tema principal violeta -->
+    <color name="colorPrimary">#764ba2</color>
+    <color name="colorPrimaryVariant">#5b3781</color>
+    <color name="colorOnPrimary">#FFFFFF</color>
 </resources>

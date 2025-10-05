@@ -20,13 +20,15 @@ class TrackingControls extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: scheme.surface,
         boxShadow: [
           BoxShadow(
-            color: Colors.grey.withOpacity(0.3),
+            color: Theme.of(context).shadowColor.withAlpha((0.08 * 255).round()),
             spreadRadius: 1,
             blurRadius: 5,
           ),
@@ -42,7 +44,7 @@ class TrackingControls extends StatelessWidget {
                 onPressed: onStart,
                 icon: Icons.play_arrow,
                 label: 'Iniciar',
-                color: Colors.green,
+                color: Theme.of(context).colorScheme.primary,
               )
             else ...[
               // Botón de pausa/reanudar
@@ -50,7 +52,7 @@ class TrackingControls extends StatelessWidget {
                 onPressed: isPaused ? onResume : onPause,
                 icon: isPaused ? Icons.play_arrow : Icons.pause,
                 label: isPaused ? 'Reanudar' : 'Pausar',
-                color: isPaused ? Colors.green : Colors.orange,
+                color: isPaused ? Theme.of(context).colorScheme.primary : Theme.of(context).colorScheme.secondary,
               ),
               
               // Botón de parar
@@ -58,7 +60,7 @@ class TrackingControls extends StatelessWidget {
                 onPressed: () => _showStopConfirmation(context),
                 icon: Icons.stop,
                 label: 'Finalizar',
-                color: Colors.red,
+                color: Theme.of(context).colorScheme.error,
               ),
             ],
           ],
@@ -90,10 +92,10 @@ class TrackingControls extends StatelessWidget {
       ),
       style: TextButton.styleFrom(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-        backgroundColor: color.withOpacity(0.1),
+  backgroundColor: color.withAlpha((0.08 * 255).round()),
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(20),
-          side: BorderSide(color: color.withOpacity(0.3)),
+          side: BorderSide(color: color.withAlpha((0.25 * 255).round())),
         ),
       ),
     );
@@ -117,8 +119,8 @@ class TrackingControls extends StatelessWidget {
                 onStop();
               },
               style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.red,
-                foregroundColor: Colors.white,
+                backgroundColor: Theme.of(context).colorScheme.error,
+                foregroundColor: Theme.of(context).colorScheme.onError,
               ),
               child: const Text('Finalizar'),
             ),

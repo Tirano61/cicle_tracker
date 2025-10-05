@@ -34,7 +34,7 @@ class MapProviderSelector extends StatelessWidget {
             children: [
               Icon(
                 provider.icon,
-                color: provider == currentProvider ? Colors.blue : null,
+                color: provider == currentProvider ? Theme.of(context).colorScheme.primary : null,
               ),
               const SizedBox(width: 12),
               Expanded(
@@ -48,7 +48,7 @@ class MapProviderSelector extends StatelessWidget {
                         fontWeight: provider == currentProvider 
                           ? FontWeight.bold 
                           : FontWeight.normal,
-                        color: provider == currentProvider ? Colors.blue : null,
+                        color: provider == currentProvider ? Theme.of(context).colorScheme.primary : null,
                       ),
                     ),
                     Text(
@@ -62,7 +62,7 @@ class MapProviderSelector extends StatelessWidget {
                 ),
               ),
               if (provider == currentProvider)
-                const Icon(Icons.check, color: Colors.blue),
+                Icon(Icons.check, color: Theme.of(context).colorScheme.primary),
             ],
           ),
         );
@@ -83,17 +83,17 @@ class MapProviderSelector extends StatelessWidget {
             ),
           ),
         ),
-        ...MapTileProvider.values.map((provider) => _buildProviderTile(provider)),
+        ...MapTileProvider.values.map((provider) => _buildProviderTile(context, provider)),
       ],
     );
   }
 
-  Widget _buildProviderTile(MapTileProvider provider) {
+  Widget _buildProviderTile(BuildContext context, MapTileProvider provider) {
     final isSelected = provider == currentProvider;
     
     return ListTile(
       leading: CircleAvatar(
-        backgroundColor: isSelected ? Colors.blue : Colors.grey[300],
+        backgroundColor: isSelected ? Theme.of(context).colorScheme.primary : Colors.grey[300],
         child: Icon(
           provider.icon,
           color: isSelected ? Colors.white : Colors.grey[700],
@@ -107,7 +107,7 @@ class MapProviderSelector extends StatelessWidget {
       ),
       subtitle: Text(provider.description),
       trailing: isSelected 
-        ? const Icon(Icons.check_circle, color: Colors.blue)
+        ? Icon(Icons.check_circle, color: Theme.of(context).colorScheme.primary)
         : null,
       selected: isSelected,
       onTap: () => onProviderChanged(provider),
@@ -147,7 +147,7 @@ class _MapProviderSettingsScreenState extends State<MapProviderSettingsScreen> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text('Tipo de mapa cambiado a ${provider.name}'),
-        backgroundColor: Colors.green,
+        backgroundColor: Theme.of(context).colorScheme.primary,
       ),
     );
   }
@@ -157,8 +157,8 @@ class _MapProviderSettingsScreenState extends State<MapProviderSettingsScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Tipo de Mapa'),
-        backgroundColor: Colors.blue,
-        foregroundColor: Colors.white,
+        backgroundColor: Theme.of(context).colorScheme.primary,
+        foregroundColor: Theme.of(context).colorScheme.onPrimary,
       ),
       body: Column(
         children: [
@@ -166,19 +166,19 @@ class _MapProviderSettingsScreenState extends State<MapProviderSettingsScreen> {
           Container(
             width: double.infinity,
             padding: const EdgeInsets.all(16),
-            color: Colors.blue[50],
+            color: Theme.of(context).colorScheme.primary.withAlpha((0.08 * 255).round()),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Row(
                   children: [
-                    Icon(Icons.info_outline, color: Colors.blue[700]),
+                    Icon(Icons.info_outline, color: Theme.of(context).colorScheme.primary),
                     const SizedBox(width: 8),
                     Text(
                       'Tipos de Mapas Disponibles',
                       style: TextStyle(
                         fontWeight: FontWeight.bold,
-                        color: Colors.blue[700],
+                        color: Theme.of(context).colorScheme.primary,
                       ),
                     ),
                   ],
@@ -207,7 +207,7 @@ class _MapProviderSettingsScreenState extends State<MapProviderSettingsScreen> {
                   Container(
                     width: double.infinity,
                     height: double.infinity,
-                    color: _getPreviewColor(_selectedProvider),
+                    color: _getPreviewColor(context, _selectedProvider),
                     child: Center(
                       child: Column(
                         mainAxisAlignment: MainAxisAlignment.center,
@@ -245,14 +245,15 @@ class _MapProviderSettingsScreenState extends State<MapProviderSettingsScreen> {
     );
   }
 
-  Color _getPreviewColor(MapTileProvider provider) {
+  Color _getPreviewColor(BuildContext context, MapTileProvider provider) {
+    final scheme = Theme.of(context).colorScheme;
     switch (provider) {
       case MapTileProvider.openStreetMap:
-        return Colors.green[400]!;
+  return scheme.primary.withAlpha((0.9 * 255).round());
       case MapTileProvider.cartoDark:
         return Colors.grey[800]!;
       case MapTileProvider.esriSatellite:
-        return Colors.blue[600]!;
+        return Colors.black87;
     }
   }
 }

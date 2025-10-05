@@ -17,8 +17,8 @@ class SessionDetailScreen extends StatelessWidget {
     return Scaffold(
       appBar: AppBar(
         title: Text('Sesión ${DateFormat('dd/MM/yyyy').format(session.startTime)}'),
-        backgroundColor: Colors.blue,
-        foregroundColor: Colors.white,
+        backgroundColor: Theme.of(context).colorScheme.primary,
+        foregroundColor: Theme.of(context).colorScheme.onPrimary,
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
@@ -26,26 +26,28 @@ class SessionDetailScreen extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             // Información general
-            _buildInfoCard(),
-            
+            _buildInfoCard(context),
+
             const SizedBox(height: 16),
-            
+
             // Métricas detalladas
-            _buildMetricsGrid(),
-            
+            _buildMetricsGrid(context),
+
             const SizedBox(height: 16),
-            
+
             // Mapa de la ruta
-            if (session.routePoints.isNotEmpty) _buildRouteMap(),
+            if (session.routePoints.isNotEmpty) _buildRouteMap(context),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildInfoCard() {
+  Widget _buildInfoCard(BuildContext context) {
     final dateFormat = DateFormat('dd/MM/yyyy HH:mm');
-    
+    final scheme = Theme.of(context).colorScheme;
+  final onSurface60 = scheme.onSurface.withAlpha((0.6 * 255).round());
+
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -62,13 +64,13 @@ class SessionDetailScreen extends StatelessWidget {
             const SizedBox(height: 16),
             Row(
               children: [
-                const Icon(Icons.calendar_today, color: Colors.blue),
+                Icon(Icons.calendar_today, color: scheme.primary),
                 const SizedBox(width: 8),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text('Inicio', style: TextStyle(fontSize: 12, color: Colors.grey)),
+                      Text('Inicio', style: TextStyle(fontSize: 12, color: onSurface60)),
                       Text(dateFormat.format(session.startTime)),
                     ],
                   ),
@@ -79,13 +81,13 @@ class SessionDetailScreen extends StatelessWidget {
               const SizedBox(height: 12),
               Row(
                 children: [
-                  const Icon(Icons.flag, color: Colors.red),
+                  Icon(Icons.flag, color: scheme.error),
                   const SizedBox(width: 8),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Text('Final', style: TextStyle(fontSize: 12, color: Colors.grey)),
+                        Text('Final', style: TextStyle(fontSize: 12, color: onSurface60)),
                         Text(dateFormat.format(session.endTime!)),
                       ],
                     ),
@@ -96,13 +98,13 @@ class SessionDetailScreen extends StatelessWidget {
             const SizedBox(height: 12),
             Row(
               children: [
-                const Icon(Icons.access_time, color: Colors.orange),
+                Icon(Icons.access_time, color: scheme.secondary),
                 const SizedBox(width: 8),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text('Duración', style: TextStyle(fontSize: 12, color: Colors.grey)),
+                      Text('Duración', style: TextStyle(fontSize: 12, color: onSurface60)),
                       Text(_formatDuration(session.duration)),
                     ],
                   ),
@@ -115,7 +117,7 @@ class SessionDetailScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildMetricsGrid() {
+  Widget _buildMetricsGrid(BuildContext context) {
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -139,28 +141,32 @@ class SessionDetailScreen extends StatelessWidget {
               mainAxisSpacing: 16,
               children: [
                 _buildMetricTile(
+                  context,
                   'Distancia',
                   '${session.distanceKm.toStringAsFixed(2)} km',
                   Icons.straighten,
-                  Colors.green,
+                  Theme.of(context).colorScheme.primary,
                 ),
                 _buildMetricTile(
+                  context,
                   'Velocidad Media',
                   '${session.averageSpeedKmh.toStringAsFixed(1)} km/h',
                   Icons.speed,
-                  Colors.blue,
+                  Theme.of(context).colorScheme.secondary,
                 ),
                 _buildMetricTile(
+                  context,
                   'Velocidad Máxima',
                   '${session.maxSpeedKmh.toStringAsFixed(1)} km/h',
                   Icons.flash_on,
-                  Colors.red,
+                  Theme.of(context).colorScheme.error,
                 ),
                 _buildMetricTile(
+                  context,
                   'Calorías',
                   '${session.caloriesBurned.toStringAsFixed(0)} kcal',
                   Icons.local_fire_department,
-                  Colors.orange,
+                  Theme.of(context).colorScheme.tertiary,
                 ),
               ],
             ),
@@ -170,13 +176,16 @@ class SessionDetailScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildMetricTile(String title, String value, IconData icon, Color color) {
+  Widget _buildMetricTile(BuildContext context, String title, String value, IconData icon, Color color) {
+    final scheme = Theme.of(context).colorScheme;
+  final onSurface60 = scheme.onSurface.withAlpha((0.6 * 255).round());
+
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
+        color: color.withAlpha((0.1 * 255).round()),
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: color.withOpacity(0.3)),
+        border: Border.all(color: color.withAlpha((0.3 * 255).round())),
       ),
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
@@ -187,7 +196,7 @@ class SessionDetailScreen extends StatelessWidget {
             title,
             style: TextStyle(
               fontSize: 12,
-              color: Colors.grey[600],
+              color: onSurface60,
             ),
             textAlign: TextAlign.center,
           ),
@@ -206,7 +215,8 @@ class SessionDetailScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildRouteMap() {
+  Widget _buildRouteMap(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
     // Calcular el centro del mapa
     final bounds = _calculateBounds(session.routePoints);
     
@@ -238,11 +248,11 @@ class SessionDetailScreen extends StatelessWidget {
                   ),
                   PolylineLayer(
                     polylines: [
-                      Polyline(
-                        points: session.routePoints,
-                        strokeWidth: 4.0,
-                        color: Colors.blue,
-                      ),
+                          Polyline(
+                            points: session.routePoints,
+                            strokeWidth: 4.0,
+                            color: Theme.of(context).colorScheme.primary,
+                          ),
                     ],
                   ),
                   MarkerLayer(
@@ -254,13 +264,13 @@ class SessionDetailScreen extends StatelessWidget {
                           width: 30,
                           height: 30,
                           child: Container(
-                            decoration: const BoxDecoration(
-                              color: Colors.green,
+                            decoration: BoxDecoration(
+                              color: Theme.of(context).colorScheme.primary,
                               shape: BoxShape.circle,
                             ),
-                            child: const Icon(
+                            child: Icon(
                               Icons.play_arrow,
-                              color: Colors.white,
+                              color: Theme.of(context).colorScheme.onPrimary,
                               size: 16,
                             ),
                           ),
@@ -272,13 +282,13 @@ class SessionDetailScreen extends StatelessWidget {
                           width: 30,
                           height: 30,
                           child: Container(
-                            decoration: const BoxDecoration(
-                              color: Colors.red,
+                            decoration: BoxDecoration(
+                              color: Theme.of(context).colorScheme.error,
                               shape: BoxShape.circle,
                             ),
-                            child: const Icon(
+                            child: Icon(
                               Icons.flag,
-                              color: Colors.white,
+                              color: Theme.of(context).colorScheme.onError,
                               size: 16,
                             ),
                           ),
@@ -293,7 +303,7 @@ class SessionDetailScreen extends StatelessWidget {
               'Puntos de GPS registrados: ${session.routePoints.length}',
               style: TextStyle(
                 fontSize: 12,
-                color: Colors.grey[600],
+                color: scheme.onSurface.withAlpha((0.6 * 255).round()),
               ),
             ),
           ],

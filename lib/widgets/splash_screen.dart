@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 class SplashScreen extends StatefulWidget {
   final VoidCallback onSplashComplete;
 
-  const SplashScreen({Key? key, required this.onSplashComplete}) : super(key: key);
+  const SplashScreen({super.key, required this.onSplashComplete});
 
   @override
   State<SplashScreen> createState() => _SplashScreenState();
@@ -119,7 +119,7 @@ class _SplashScreenState extends State<SplashScreen>
                           style: TextStyle(
                             fontSize: 32,
                             fontWeight: FontWeight.bold,
-                            color: Colors.white.withOpacity(0.95),
+                            color: Colors.white.withAlpha((0.95 * 255).round()),
                             letterSpacing: 2.0,
                           ),
                         ),
@@ -128,7 +128,7 @@ class _SplashScreenState extends State<SplashScreen>
                           'Tu compañero de ciclismo',
                           style: TextStyle(
                             fontSize: 16,
-                            color: Colors.white.withOpacity(0.8),
+                            color: Colors.white.withAlpha((0.8 * 255).round()),
                             letterSpacing: 1.0,
                           ),
                         ),
@@ -166,11 +166,11 @@ class _SplashScreenState extends State<SplashScreen>
 }
 
 class BikeWheel extends StatelessWidget {
-  const BikeWheel({Key? key}) : super(key: key);
+  const BikeWheel({super.key});
 
   @override
   Widget build(BuildContext context) {
-    return Container(
+    return SizedBox(
       width: 120,
       height: 120,
       child: CustomPaint(
@@ -194,13 +194,13 @@ class BikeWheelPainter extends CustomPainter {
       
     // Pincel para el aro interior
     final innerRimPaint = Paint()
-      ..color = Colors.white.withOpacity(0.8)
+  ..color = Colors.white.withAlpha((0.8 * 255).round())
       ..style = PaintingStyle.stroke
       ..strokeWidth = 4;
       
     // Pincel para los rayos
     final spokesPaint = Paint()
-      ..color = Colors.white.withOpacity(0.9)
+  ..color = Colors.white.withAlpha((0.9 * 255).round())
       ..style = PaintingStyle.stroke
       ..strokeWidth = 3
       ..strokeCap = StrokeCap.round;

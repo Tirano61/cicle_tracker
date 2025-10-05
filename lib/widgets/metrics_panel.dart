@@ -14,13 +14,15 @@ class MetricsPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: scheme.surface,
         boxShadow: [
           BoxShadow(
-            color: Colors.grey.withOpacity(0.3),
+            color: Theme.of(context).shadowColor.withAlpha((0.3 * 255).round()),
             spreadRadius: 1,
             blurRadius: 5,
             offset: const Offset(0, -3),
@@ -32,6 +34,7 @@ class MetricsPanel extends StatelessWidget {
         children: [
           // Velocidad actual prominente
           _buildSpeedCard(
+            context,
             value: trackingData.currentSpeedKmh.toStringAsFixed(1),
             unit: _getSpeedUnit(),
           ),
@@ -43,24 +46,27 @@ class MetricsPanel extends StatelessWidget {
             mainAxisAlignment: MainAxisAlignment.spaceEvenly,
             children: [
               _buildCompactMetricCard(
+                context,
                 title: 'Distancia',
                 value: _formatDistance(trackingData.distanceKm),
                 unit: _getDistanceUnit(),
-                color: Colors.grey[800]!,
+            color: Theme.of(context).colorScheme.onSurface,
                 icon: Icons.straighten,
               ),
               _buildCompactMetricCard(
+                context,
                 title: 'Tiempo',
                 value: _formatDuration(trackingData.elapsedTime),
                 unit: '',
-                color: Colors.grey[800]!,
+                color: Theme.of(context).colorScheme.onSurface,
                 icon: Icons.access_time,
               ),
               _buildCompactMetricCard(
+                context,
                 title: 'Calorías',
                 value: trackingData.caloriesBurned.toStringAsFixed(0),
                 unit: 'kcal',
-                color: Colors.grey[800]!,
+                color: Theme.of(context).colorScheme.onSurface,
                 icon: Icons.local_fire_department,
               ),
             ],
@@ -73,18 +79,20 @@ class MetricsPanel extends StatelessWidget {
             mainAxisAlignment: MainAxisAlignment.spaceEvenly,
             children: [
               _buildCompactMetricCard(
+                context,
                 title: 'Velocidad Media',
                 value: trackingData.averageSpeedKmh.toStringAsFixed(1),
                 unit: _getSpeedUnit(),
-                color: Colors.grey[700]!,
+                color: Theme.of(context).colorScheme.onSurface.withAlpha((0.8 * 255).round()),
                 icon: Icons.trending_up,
                 isSmaller: true,
               ),
               _buildCompactMetricCard(
+                context,
                 title: 'Vel. Máxima',
                 value: trackingData.maxSpeedKmh.toStringAsFixed(1),
                 unit: _getSpeedUnit(),
-                color: Colors.grey[700]!,
+                color: Theme.of(context).colorScheme.onSurface.withAlpha((0.8 * 255).round()),
                 icon: Icons.flash_on,
                 isSmaller: true,
               ),
@@ -96,8 +104,8 @@ class MetricsPanel extends StatelessWidget {
             Container(
               margin: const EdgeInsets.only(top: 12),
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-              decoration: BoxDecoration(
-                color: trackingData.isPaused ? Colors.orange : Colors.green,
+      decoration: BoxDecoration(
+                  color: trackingData.isPaused ? Theme.of(context).colorScheme.secondary : scheme.primary,
                 borderRadius: BorderRadius.circular(20),
               ),
               child: Row(
@@ -105,14 +113,14 @@ class MetricsPanel extends StatelessWidget {
                 children: [
                   Icon(
                     trackingData.isPaused ? Icons.pause : Icons.play_arrow,
-                    color: Colors.white,
+                    color: scheme.onPrimary,
                     size: 16,
                   ),
                   const SizedBox(width: 4),
                   Text(
                     trackingData.isPaused ? 'PAUSADO' : 'GRABANDO',
-                    style: const TextStyle(
-                      color: Colors.white,
+                    style: TextStyle(
+                      color: scheme.onPrimary,
                       fontSize: 12,
                       fontWeight: FontWeight.bold,
                     ),
@@ -126,7 +134,7 @@ class MetricsPanel extends StatelessWidget {
   }
 
   // Tarjeta de velocidad prominente
-  Widget _buildSpeedCard({
+  Widget _buildSpeedCard(BuildContext context, {
     required String value,
     required String unit,
   }) {
@@ -153,7 +161,7 @@ class MetricsPanel extends StatelessWidget {
             style: TextStyle(
               fontSize: 56,
               fontWeight: FontWeight.bold,
-              color: Colors.grey[900],
+              color: Colors.black,
             ),
           ),
           const SizedBox(width: 8),
@@ -164,7 +172,7 @@ class MetricsPanel extends StatelessWidget {
               style: TextStyle(
                 fontSize: 20,
                 fontWeight: FontWeight.w600,
-                color: Colors.grey[700],
+                color: Theme.of(context).colorScheme.onSurface.withAlpha((0.7 * 255).round()),
               ),
             ),
           ),
@@ -174,7 +182,7 @@ class MetricsPanel extends StatelessWidget {
   }
 
   // Tarjetas compactas con icono a la izquierda
-  Widget _buildCompactMetricCard({
+  Widget _buildCompactMetricCard(BuildContext context, {
     required String title,
     required String value,
     required String unit,
@@ -182,6 +190,7 @@ class MetricsPanel extends StatelessWidget {
     required IconData icon,
     bool isSmaller = false,
   }) {
+    // accept context usage via Theme.of wherever needed by caller
     return Expanded(
       child: Container(
         margin: const EdgeInsets.symmetric(horizontal: 4),
@@ -209,7 +218,7 @@ class MetricsPanel extends StatelessWidget {
                     style: TextStyle(
                       fontSize: isSmaller ? 10 : 11,
                       fontWeight: FontWeight.w600,
-                      color: Colors.grey[600],
+                        color: Theme.of(context).colorScheme.onSurface.withAlpha((0.7 * 255).round()),
                     ),
                   ),
                   const SizedBox(height: 2),
@@ -233,7 +242,7 @@ class MetricsPanel extends StatelessWidget {
                           unit,
                           style: TextStyle(
                             fontSize: isSmaller ? 9 : 10,
-                            color: color.withOpacity(0.8),
+                              color: Theme.of(context).colorScheme.onSurface.withAlpha((0.8 * 255).round()),
                           ),
                         ),
                       ],

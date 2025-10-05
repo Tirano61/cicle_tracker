@@ -52,7 +52,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(message),
-        backgroundColor: Colors.red,
+        backgroundColor: Theme.of(context).colorScheme.error,
       ),
     );
   }
@@ -60,10 +60,10 @@ class _HistoryScreenState extends State<HistoryScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('📈 Historial'),
-        backgroundColor: Colors.blue,
-        foregroundColor: Colors.white,
+        appBar: AppBar(
+          title: const Text('📈 Historial'),
+          backgroundColor: Theme.of(context).colorScheme.primary,
+          foregroundColor: Theme.of(context).colorScheme.onPrimary,
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh),
@@ -97,22 +97,22 @@ class _HistoryScreenState extends State<HistoryScreen> {
       margin: const EdgeInsets.all(16),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.blue.shade50,
+  color: Theme.of(context).colorScheme.primary.withAlpha((0.08 * 255).round()),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.blue.shade200),
+  border: Border.all(color: Theme.of(context).colorScheme.primary.withAlpha((0.16 * 255).round())),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
-            'Estadísticas Generales',
-            style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
-              color: Colors.blue,
-            ),
+          Text(
+              'Estadísticas Generales',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+                color: Theme.of(context).colorScheme.primary,
+              ),
           ),
-          const SizedBox(height: 16),
+          SizedBox(height: 16),
           Row(
             children: [
               Expanded(
@@ -158,9 +158,9 @@ class _HistoryScreenState extends State<HistoryScreen> {
   Widget _buildStatItem(String label, String value, IconData icon) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8),
-      child: Row(
+                child: Row(
         children: [
-          Icon(icon, size: 20, color: Colors.blue),
+          Icon(icon, size: 20, color: Theme.of(context).colorScheme.primary),
           const SizedBox(width: 8),
           Expanded(
             child: Column(
@@ -170,7 +170,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
                   label,
                   style: TextStyle(
                     fontSize: 12,
-                    color: Colors.grey[600],
+                    color: Theme.of(context).textTheme.bodyMedium?.color?.withAlpha((0.7 * 255).round()),
                   ),
                 ),
                 Text(
@@ -196,14 +196,14 @@ class _HistoryScreenState extends State<HistoryScreen> {
           Icon(
             Icons.directions_bike,
             size: 64,
-            color: Colors.grey[400],
+            color: Theme.of(context).colorScheme.onSurface.withAlpha((0.24 * 255).round()),
           ),
           const SizedBox(height: 16),
           Text(
             'No hay sesiones guardadas',
             style: TextStyle(
               fontSize: 18,
-              color: Colors.grey[600],
+              color: Theme.of(context).textTheme.bodyMedium?.color?.withAlpha((0.7 * 255).round()),
             ),
           ),
           const SizedBox(height: 8),
@@ -211,7 +211,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
             'Comienza tu primera sesión de ciclismo',
             style: TextStyle(
               fontSize: 14,
-              color: Colors.grey[500],
+              color: Theme.of(context).textTheme.bodyMedium?.color?.withAlpha((0.6 * 255).round()),
             ),
           ),
         ],

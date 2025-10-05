@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import '../models/argentina_regions.dart';
 import '../services/map_cache_service.dart';
 
@@ -16,14 +17,17 @@ class _ArgentinaDownloadScreenState extends State<ArgentinaDownloadScreen> {
   String _currentProvince = '';
   bool _forceRedownload = false;
   final MapCacheService _mapCacheService = MapCacheService();
+  // Contadores de tiles para mostrar progreso real
+  int _currentProvinceTilesDownloaded = 0;
+  int _currentProvinceTilesTotal = 0;
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Descargar Mapas de Argentina'),
-        backgroundColor: Colors.green[600],
-        foregroundColor: Colors.white,
+        backgroundColor: Theme.of(context).colorScheme.primary,
+        foregroundColor: Theme.of(context).colorScheme.onPrimary,
       ),
       body: Column(
         children: [
@@ -31,16 +35,16 @@ class _ArgentinaDownloadScreenState extends State<ArgentinaDownloadScreen> {
           Container(
             width: double.infinity,
             padding: const EdgeInsets.all(16.0),
-            color: Colors.grey[100],
+            color: Theme.of(context).colorScheme.surface,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
                   'Descarga Completa de Argentina',
                   style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                    fontWeight: FontWeight.bold,
-                    color: Colors.green[700],
-                  ),
+                      fontWeight: FontWeight.bold,
+                      color: Theme.of(context).colorScheme.primary,
+                    ),
                 ),
                 const SizedBox(height: 8),
                 _buildDownloadSummary(),
@@ -91,9 +95,9 @@ class _ArgentinaDownloadScreenState extends State<ArgentinaDownloadScreen> {
           ],
         ),
         const SizedBox(height: 8),
-        Text(
+                Text(
           'Total Argentina: ${allTotals['tiles']} tiles (~${(allTotals['sizeMB'] as double).toStringAsFixed(0)} MB)',
-          style: const TextStyle(fontSize: 12, color: Colors.grey),
+          style: TextStyle(fontSize: 12, color: Theme.of(context).textTheme.bodySmall?.color?.withAlpha((0.7 * 255).round())),
         ),
       ],
     );
@@ -102,7 +106,7 @@ class _ArgentinaDownloadScreenState extends State<ArgentinaDownloadScreen> {
   Widget _buildDownloadProgress() {
     return Container(
       padding: const EdgeInsets.all(16.0),
-      color: Colors.blue[50],
+  color: Theme.of(context).colorScheme.primary.withAlpha((0.06 * 255).round()),
       child: Column(
         children: [
           Row(
@@ -119,8 +123,8 @@ class _ArgentinaDownloadScreenState extends State<ArgentinaDownloadScreen> {
                 icon: const Icon(Icons.cancel, size: 18),
                 label: const Text('Cancelar'),
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.red[100],
-                  foregroundColor: Colors.red[700],
+                  backgroundColor: Theme.of(context).colorScheme.surface,
+                  foregroundColor: Theme.of(context).colorScheme.onSurface,
                   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                 ),
               ),
@@ -129,19 +133,34 @@ class _ArgentinaDownloadScreenState extends State<ArgentinaDownloadScreen> {
           const SizedBox(height: 12),
           LinearProgressIndicator(
             value: _downloadProgress,
-            backgroundColor: Colors.grey[300],
-            valueColor: AlwaysStoppedAnimation<Color>(Colors.blue[600]!),
+            backgroundColor: Theme.of(context).colorScheme.surfaceContainerHighest,
+            valueColor: AlwaysStoppedAnimation<Color>(Theme.of(context).colorScheme.primary),
           ),
+          const SizedBox(height: 8),
+          if (_currentProvinceTilesTotal > 0)
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text('Tiles: $_currentProvinceTilesDownloaded / $_currentProvinceTilesTotal'),
+                const SizedBox(width: 8),
+              ],
+            ),
           const SizedBox(height: 8),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text('${(_downloadProgress * 100).toStringAsFixed(1)}% completado'),
+              // Mostrar porcentaje por provincia para que sea más visible en descargas grandes
+              Builder(builder: (context) {
+                final provincePercent = _currentProvinceTilesTotal > 0
+                    ? (_currentProvinceTilesDownloaded / _currentProvinceTilesTotal) * 100
+                    : (_downloadProgress * 100);
+                return Text('${provincePercent.toStringAsFixed(1)}% (provincia)');
+              }),
               Text(
                 '${_selectedProvinces.length} ${_selectedProvinces.length == 1 ? "provincia" : "provincias"}',
                 style: TextStyle(
                   fontSize: 12,
-                  color: Colors.grey[600],
+                  color: Theme.of(context).textTheme.bodySmall?.color?.withAlpha((0.8 * 255).round()),
                 ),
               ),
             ],
@@ -167,6 +186,8 @@ class _ArgentinaDownloadScreenState extends State<ArgentinaDownloadScreen> {
     final regionSelected = provinces.every((province) => _selectedProvinces.contains(province.code));
     final regionPartiallySelected = provinces.any((province) => _selectedProvinces.contains(province.code));
 
+    final scheme = Theme.of(context).colorScheme;
+
     return Card(
       child: ExpansionTile(
         title: Row(
@@ -181,7 +202,7 @@ class _ArgentinaDownloadScreenState extends State<ArgentinaDownloadScreen> {
                 regionName,
                 style: TextStyle(
                   fontWeight: FontWeight.bold,
-                  color: regionPartiallySelected ? Colors.green[700] : null,
+                  color: regionPartiallySelected ? scheme.primary : null,
                 ),
               ),
             ),
@@ -203,7 +224,7 @@ class _ArgentinaDownloadScreenState extends State<ArgentinaDownloadScreen> {
           Text('${province.estimatedTileCount.toString()} tiles • ${province.estimatedSizeMB.toStringAsFixed(1)} MB'),
           Text(
             'Área: ${province.areaKm2.toStringAsFixed(0)} km²',
-            style: const TextStyle(fontSize: 12, color: Colors.grey),
+            style: TextStyle(fontSize: 12, color: Theme.of(context).textTheme.bodySmall?.color?.withAlpha((0.7 * 255).round())),
           ),
         ],
       ),
@@ -215,13 +236,15 @@ class _ArgentinaDownloadScreenState extends State<ArgentinaDownloadScreen> {
   }
 
   Widget _buildActionButtons() {
+    final scheme = Theme.of(context).colorScheme;
+
     return Container(
       padding: const EdgeInsets.all(16.0),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: scheme.surface,
         boxShadow: [
           BoxShadow(
-            color: Colors.grey.withOpacity(0.3),
+            color: Theme.of(context).shadowColor.withAlpha((0.08 * 255).round()),
             spreadRadius: 1,
             blurRadius: 3,
             offset: const Offset(0, -1),
@@ -237,8 +260,8 @@ class _ArgentinaDownloadScreenState extends State<ArgentinaDownloadScreen> {
             child: ElevatedButton(
               onPressed: _isDownloading ? null : _selectAllProvinces,
               style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.grey[600],
-                foregroundColor: Colors.white,
+                      backgroundColor: scheme.surfaceContainerHighest,
+                foregroundColor: scheme.onSurface,
               ),
               child: const Text('Seleccionar Todo'),
             ),
@@ -248,8 +271,8 @@ class _ArgentinaDownloadScreenState extends State<ArgentinaDownloadScreen> {
             child: ElevatedButton(
               onPressed: _isDownloading ? null : _clearSelection,
               style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.grey[600],
-                foregroundColor: Colors.white,
+                      backgroundColor: scheme.surfaceContainerHighest,
+                foregroundColor: scheme.onSurface,
               ),
               child: const Text('Limpiar'),
             ),
@@ -260,17 +283,17 @@ class _ArgentinaDownloadScreenState extends State<ArgentinaDownloadScreen> {
             child: ElevatedButton(
               onPressed: _selectedProvinces.isEmpty || _isDownloading ? null : _startDownload,
               style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.green[600],
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(vertical: 16),
-              ),
+                  backgroundColor: scheme.primary,
+                  foregroundColor: scheme.onPrimary,
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                ),
               child: _isDownloading 
-                ? const SizedBox(
+                ? SizedBox(
                     height: 20,
                     width: 20,
                     child: CircularProgressIndicator(
                       strokeWidth: 2,
-                      valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                      valueColor: AlwaysStoppedAnimation<Color>(scheme.onPrimary),
                     ),
                   )
                 : const Text('Descargar'),
@@ -298,7 +321,7 @@ class _ArgentinaDownloadScreenState extends State<ArgentinaDownloadScreen> {
                   'Forzar re-descarga (incluso si ya existe)',
                   style: TextStyle(
                     fontSize: 14,
-                    color: Colors.grey[700],
+                    color: Theme.of(context).textTheme.bodySmall?.color?.withAlpha((0.85 * 255).round()),
                   ),
                 ),
               ),
@@ -354,6 +377,19 @@ class _ArgentinaDownloadScreenState extends State<ArgentinaDownloadScreen> {
   Future<void> _startDownload() async {
     if (_selectedProvinces.isEmpty) return;
 
+    // Asegurar que el servicio de cache esté inicializado (DB, directorios)
+    try {
+      await _mapCacheService.initialize();
+      if (!mounted) return;
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error inicializando servicio de mapas: $e'), backgroundColor: Theme.of(context).colorScheme.error),
+        );
+      }
+      return;
+    }
+
     setState(() {
       _isDownloading = true;
       _downloadProgress = 0.0;
@@ -364,21 +400,57 @@ class _ArgentinaDownloadScreenState extends State<ArgentinaDownloadScreen> {
           .where((province) => _selectedProvinces.contains(province.code))
           .toList();
 
+      // Comprobar si el total estimado de tiles es muy grande y pedir confirmación
+      final totalsCheck = ArgentinaRegions.calculateTotals(selectedProvincesData);
+      final estimatedTiles = totalsCheck['tiles'] as int;
+      const int largeThreshold = 10000; // umbral para advertir
+      if (estimatedTiles > largeThreshold) {
+        final proceed = await showDialog<bool>(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('Descarga muy grande'),
+            content: Text('Has seleccionado aproximadamente $estimatedTiles tiles. Esto puede tardar mucho y consumir espacio. ¿Deseas continuar?'),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancelar')),
+              ElevatedButton(onPressed: () => Navigator.pop(context, true), child: const Text('Continuar')),
+            ],
+          ),
+        );
+
+        if (!mounted) return;
+
+        if (proceed != true) {
+          setState(() {
+            _isDownloading = false;
+            _downloadProgress = 0.0;
+          });
+          return;
+        }
+      }
+
       int completedProvinces = 0;
       final totalProvinces = selectedProvincesData.length;
 
       for (final province in selectedProvincesData) {
-        // Verificar si el usuario canceló la descarga
-        if (!_mapCacheService.isDownloading) {
+        // Verificar si el usuario canceló la descarga (usar flag local)
+        if (!_isDownloading) {
           break;
         }
-        
+        debugPrint('Starting download for province: ${province.name} (${province.code})');
         setState(() {
           _currentProvince = province.name;
           _downloadProgress = completedProvinces / totalProvinces;
         });
 
-        try {
+        // Log del total estimado de tiles para esta provincia (diagnóstico)
+        final provinceTilesEstimate = province.estimatedTileCount;
+        debugPrint('Province ${province.name} estimated tiles: $provinceTilesEstimate');
+
+        // Reset counters para esta provincia
+        _currentProvinceTilesDownloaded = 0;
+        _currentProvinceTilesTotal = 0;
+
+  try {
           // Verificar si la provincia ya está completa
           final isComplete = await _mapCacheService.isRegionComplete(
             province.minLat,
@@ -390,19 +462,19 @@ class _ArgentinaDownloadScreenState extends State<ArgentinaDownloadScreen> {
           );
 
           if (isComplete && !_forceRedownload) {
-            print('${province.name} ya está descargada completamente');
+            if (kDebugMode) debugPrint('${province.name} ya está descargada completamente');
             if (mounted) {
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(
                   content: Text('${province.name} ya está descargada (salteando)'),
-                  backgroundColor: Colors.blue[600],
+                  backgroundColor: Theme.of(context).colorScheme.primary,
                   duration: const Duration(seconds: 1),
                 ),
               );
             }
           } else {
             if (isComplete && _forceRedownload) {
-              print('Re-descargando ${province.name} por solicitud del usuario');
+              if (kDebugMode) debugPrint('Re-descargando ${province.name} por solicitud del usuario');
             }
             // Descargar tiles para esta provincia
             await _mapCacheService.downloadRegion(
@@ -415,7 +487,9 @@ class _ArgentinaDownloadScreenState extends State<ArgentinaDownloadScreen> {
               onProgress: (downloaded, total) {
                 if (mounted) {
                   setState(() {
-                    final provinceProgress = downloaded / total;
+                    _currentProvinceTilesDownloaded = downloaded;
+                    _currentProvinceTilesTotal = total;
+                    final provinceProgress = total > 0 ? (downloaded / total) : 0.0;
                     _downloadProgress = (completedProvinces + provinceProgress) / totalProvinces;
                   });
                 }
@@ -424,14 +498,15 @@ class _ArgentinaDownloadScreenState extends State<ArgentinaDownloadScreen> {
           }
           
           completedProvinces++;
+          if (kDebugMode) debugPrint('Completed province: ${province.name}');
         } catch (e) {
-          print('Error descargando provincia ${province.name}: $e');
+          if (kDebugMode) debugPrint('Error descargando provincia ${province.name}: $e');
           // Mostrar error pero continuar con la siguiente provincia
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
-                content: Text('Error descargando ${province.name}. Continuando...'),
-                backgroundColor: Colors.orange,
+                content: Text('Error descargando ${province.name}: $e. Continuando...'),
+                backgroundColor: Theme.of(context).colorScheme.secondary,
                 duration: const Duration(seconds: 2),
               ),
             );
@@ -448,7 +523,7 @@ class _ArgentinaDownloadScreenState extends State<ArgentinaDownloadScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Descarga completada: ${selectedProvincesData.length} provincias'),
-            backgroundColor: Colors.green[600],
+            backgroundColor: Theme.of(context).colorScheme.primary,
           ),
         );
       }
@@ -457,7 +532,7 @@ class _ArgentinaDownloadScreenState extends State<ArgentinaDownloadScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Error en la descarga: $e'),
-            backgroundColor: Colors.red[600],
+            backgroundColor: Theme.of(context).colorScheme.error,
           ),
         );
       }
@@ -480,9 +555,9 @@ class _ArgentinaDownloadScreenState extends State<ArgentinaDownloadScreen> {
     
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Descarga cancelada por el usuario'),
-          backgroundColor: Colors.orange,
+        SnackBar(
+          content: const Text('Descarga cancelada por el usuario'),
+          backgroundColor: Theme.of(context).colorScheme.secondary,
         ),
       );
     }
