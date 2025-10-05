@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
+
 import '../services/map_cache_service.dart';
 import '../services/location_service.dart';
 import '../models/map_area.dart';
+// Removed duplicate imports
 
 class OfflineMapScreen extends StatefulWidget {
   const OfflineMapScreen({super.key});
@@ -57,7 +59,7 @@ class _OfflineMapScreenState extends State<OfflineMapScreen> {
   }
 
   Future<void> _getCurrentLocation() async {
-    final location = await _locationService.getCurrentLocation();
+  final location = await _locationService.getCurrentLocation();
     if (location != null) {
       setState(() => _currentLocation = location);
       _mapController.move(location, 12.0);
@@ -77,11 +79,13 @@ class _OfflineMapScreenState extends State<OfflineMapScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('🗺️ Mapas Offline'),
-        backgroundColor: Colors.blue,
-        foregroundColor: Colors.white,
+        backgroundColor: scheme.primary,
+        foregroundColor: scheme.onPrimary,
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh),
@@ -102,33 +106,34 @@ class _OfflineMapScreenState extends State<OfflineMapScreen> {
       body: Column(
         children: [
           // Panel de información
-          _buildInfoPanel(),
+          _buildInfoPanel(context),
           
           // Mapa para selección
           Expanded(
             flex: 3,
-            child: _buildMap(),
+            child: _buildMap(context),
           ),
           
           // Lista de áreas descargadas
           Expanded(
             flex: 2,
-            child: _buildAreasList(),
+            child: _buildAreasList(context),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildInfoPanel() {
+  Widget _buildInfoPanel(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
     return Container(
       padding: const EdgeInsets.all(16),
-      color: Colors.blue.shade50,
+  color: scheme.primary.withAlpha((0.06 * 255).round()),
       child: Column(
         children: [
           Row(
             children: [
-              const Icon(Icons.storage, color: Colors.blue),
+              Icon(Icons.storage, color: scheme.primary),
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
@@ -138,7 +143,7 @@ class _OfflineMapScreenState extends State<OfflineMapScreen> {
               ),
               Text(
                 '${_areas.length} áreas',
-                style: TextStyle(color: Colors.grey[600]),
+                style: TextStyle(color: Theme.of(context).textTheme.bodyMedium?.color?.withAlpha((0.7 * 255).round())),
               ),
             ],
           ),
@@ -148,8 +153,8 @@ class _OfflineMapScreenState extends State<OfflineMapScreen> {
             backgroundColor: Colors.grey[300],
             valueColor: AlwaysStoppedAnimation<Color>(
               _totalCacheMB > MapCacheService.maxCacheSizeMB * 0.8 
-                  ? Colors.red 
-                  : Colors.blue,
+                  ? scheme.error 
+                  : scheme.primary,
             ),
           ),
           if (_isSelecting) ...[
@@ -172,7 +177,8 @@ class _OfflineMapScreenState extends State<OfflineMapScreen> {
     );
   }
 
-  Widget _buildMap() {
+  Widget _buildMap(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
     return FlutterMap(
       mapController: _mapController,
       options: MapOptions(
@@ -197,7 +203,7 @@ class _OfflineMapScreenState extends State<OfflineMapScreen> {
               area.southWest,
             ],
             strokeWidth: 2.0,
-            color: area.isFullyDownloaded ? Colors.green : Colors.orange,
+            color: area.isFullyDownloaded ? scheme.primary : Colors.orange,
           )).toList(),
         ),
         
@@ -214,7 +220,7 @@ class _OfflineMapScreenState extends State<OfflineMapScreen> {
                   LatLng(_selectionStart!.latitude, _selectionStart!.longitude),
                 ],
                 strokeWidth: 3.0,
-                color: Colors.red,
+                color: scheme.error,
               ),
             ],
           ),
@@ -229,8 +235,8 @@ class _OfflineMapScreenState extends State<OfflineMapScreen> {
                 width: 20,
                 height: 20,
                 child: Container(
-                  decoration: const BoxDecoration(
-                    color: Colors.blue,
+                  decoration: BoxDecoration(
+                    color: scheme.primary,
                     shape: BoxShape.circle,
                   ),
                   child: const Icon(
@@ -258,9 +264,9 @@ class _OfflineMapScreenState extends State<OfflineMapScreen> {
                 point: _selectionEnd!,
                 width: 30,
                 height: 30,
-                child: const Icon(
+                child: Icon(
                   Icons.flag,
-                  color: Colors.blue,
+                  color: scheme.primary,
                   size: 30,
                 ),
               ),
@@ -270,13 +276,14 @@ class _OfflineMapScreenState extends State<OfflineMapScreen> {
     );
   }
 
-  Widget _buildAreasList() {
+  Widget _buildAreasList(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
     return Container(
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: Theme.of(context).colorScheme.surface,
         boxShadow: [
           BoxShadow(
-            color: Colors.grey.withOpacity(0.3),
+            color: Theme.of(context).shadowColor.withAlpha((0.3 * 255).round()),
             spreadRadius: 1,
             blurRadius: 5,
             offset: const Offset(0, -3),
@@ -289,11 +296,12 @@ class _OfflineMapScreenState extends State<OfflineMapScreen> {
             padding: const EdgeInsets.all(16),
             child: Row(
               children: [
-                const Text(
+                Text(
                   'Áreas Descargadas',
                   style: TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.bold,
+                    color: scheme.onSurface,
                   ),
                 ),
                 const Spacer(),
@@ -309,17 +317,18 @@ class _OfflineMapScreenState extends State<OfflineMapScreen> {
             child: _isLoading
                 ? const Center(child: CircularProgressIndicator())
                 : _areas.isEmpty
-                    ? const Center(
+                    ? Center(
                         child: Text(
                           'No hay áreas descargadas\nSelecciona un área en el mapa',
                           textAlign: TextAlign.center,
+                          style: TextStyle(color: scheme.onSurface.withAlpha((0.6 * 255).round())),
                         ),
                       )
                     : ListView.builder(
                         itemCount: _areas.length,
                         itemBuilder: (context, index) {
                           final area = _areas[index];
-                          return _buildAreaCard(area);
+                          return _buildAreaCard(context, area);
                         },
                       ),
           ),
@@ -328,13 +337,15 @@ class _OfflineMapScreenState extends State<OfflineMapScreen> {
     );
   }
 
-  Widget _buildAreaCard(MapArea area) {
+  Widget _buildAreaCard(BuildContext context, MapArea area) {
+    final scheme = Theme.of(context).colorScheme;
+
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
       child: ListTile(
         leading: CircleAvatar(
           backgroundColor: area.isFullyDownloaded 
-              ? Colors.green 
+              ? scheme.primary 
               : area.isDownloading 
                   ? Colors.orange 
                   : Colors.grey,
@@ -375,8 +386,8 @@ class _OfflineMapScreenState extends State<OfflineMapScreen> {
                 itemBuilder: (context) => [
                   PopupMenuItem(
                     value: 'center',
-                    child: const Row(
-                      children: [
+                    child: Row(
+                      children: const [
                         Icon(Icons.center_focus_strong),
                         SizedBox(width: 8),
                         Text('Centrar'),
@@ -385,11 +396,11 @@ class _OfflineMapScreenState extends State<OfflineMapScreen> {
                   ),
                   PopupMenuItem(
                     value: 'delete',
-                    child: const Row(
+                    child: Row(
                       children: [
-                        Icon(Icons.delete, color: Colors.red),
-                        SizedBox(width: 8),
-                        Text('Eliminar', style: TextStyle(color: Colors.red)),
+                        Icon(Icons.delete, color: scheme.error),
+                        const SizedBox(width: 8),
+                        Text('Eliminar', style: TextStyle(color: scheme.error)),
                       ],
                     ),
                   ),
@@ -524,7 +535,7 @@ class _OfflineMapScreenState extends State<OfflineMapScreen> {
           ),
           ElevatedButton(
             onPressed: () => _deleteArea(area),
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            style: ElevatedButton.styleFrom(backgroundColor: Theme.of(context).colorScheme.error),
             child: const Text('Eliminar'),
           ),
         ],
@@ -557,7 +568,7 @@ class _OfflineMapScreenState extends State<OfflineMapScreen> {
           ),
           ElevatedButton(
             onPressed: _clearAllCache,
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            style: ElevatedButton.styleFrom(backgroundColor: Theme.of(context).colorScheme.error),
             child: const Text('Limpiar Todo'),
           ),
         ],
@@ -583,7 +594,7 @@ class _OfflineMapScreenState extends State<OfflineMapScreen> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(message),
-        backgroundColor: Colors.red,
+        backgroundColor: Theme.of(context).colorScheme.error,
       ),
     );
   }
@@ -592,7 +603,7 @@ class _OfflineMapScreenState extends State<OfflineMapScreen> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(message),
-        backgroundColor: Colors.green,
+        backgroundColor: Theme.of(context).colorScheme.primary,
       ),
     );
   }

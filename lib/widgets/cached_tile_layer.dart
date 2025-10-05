@@ -56,7 +56,7 @@ class CachedTileLayer extends StatelessWidget {
                     child: Icon(
                       Icons.wifi_off,
                       size: 12,
-                      color: Colors.green,
+                      color: Theme.of(context).colorScheme.primary,
                     ),
                   ),
                   */

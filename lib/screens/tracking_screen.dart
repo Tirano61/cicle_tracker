@@ -61,6 +61,7 @@ class _TrackingScreenState extends State<TrackingScreen> {
   Future<void> _loadUserSettings() async {
     final settings = await _preferencesService.loadUserSettings();
     final mapProvider = await _preferencesService.getMapProvider();
+    if (!mounted) return;
     setState(() {
       _userSettings = settings;
       _currentMapProvider = mapProvider;
@@ -109,14 +110,15 @@ class _TrackingScreenState extends State<TrackingScreen> {
       }
     });
 
-    _showSnackBar('¡Tracking iniciado!', Colors.green);
+  if (!mounted) return;
+  _showSnackBar('¡Tracking iniciado!', Theme.of(context).colorScheme.primary);
   }
 
   void _pauseTracking() {
     _locationService.pauseTracking();
     _calorieTimer?.cancel();
     _recalculateTimer?.cancel();
-    _showSnackBar('Tracking pausado', Colors.orange);
+  _showSnackBar('Tracking pausado', Theme.of(context).colorScheme.secondary);
   }
 
   void _resumeTracking() {
@@ -136,7 +138,7 @@ class _TrackingScreenState extends State<TrackingScreen> {
       }
     });
 
-    _showSnackBar('Tracking reanudado', Colors.green);
+  _showSnackBar('Tracking reanudado', Theme.of(context).colorScheme.primary);
   }
 
   Future<void> _stopTracking() async {
@@ -146,12 +148,14 @@ class _TrackingScreenState extends State<TrackingScreen> {
 
     // Guardar sesión si hay datos válidos
     if (_trackingData.distanceKm > 0.1 && _trackingData.elapsedTime.inMinutes > 1) {
-      await _saveSession();
-      _showSnackBar('¡Sesión guardada!', Colors.blue);
+  await _saveSession();
+  if (!mounted) return;
+  _showSnackBar('¡Sesión guardada!', Theme.of(context).colorScheme.primary);
     }
 
     _locationService.resetTracking();
-    _showSnackBar('Tracking detenido', Colors.red);
+  if (!mounted) return;
+  _showSnackBar('Tracking detenido', Theme.of(context).colorScheme.error);
   }
 
   void _updateCalories() {
@@ -235,7 +239,8 @@ class _TrackingScreenState extends State<TrackingScreen> {
       await _preferencesService.saveMapProvider(newProvider);
       
       // Mostrar confirmación
-      _showSnackBar('Mapa cambiado a ${newProvider.name}', Colors.blue);
+    if (!mounted) return;
+    _showSnackBar('Mapa cambiado a ${newProvider.name}', Theme.of(context).colorScheme.primary);
     }
   }
 
@@ -252,13 +257,13 @@ class _TrackingScreenState extends State<TrackingScreen> {
   Widget _buildConnectionIndicator() {
     return Container(
       margin: const EdgeInsets.only(right: 8),
-      child: Center(
-        child: Icon(
-          Icons.wifi,
-          color: Colors.white.withOpacity(0.9),
-          size: 20,
-        ),
-      ),
+          child: Center(
+              child: Icon(
+              Icons.wifi,
+              color: Theme.of(context).colorScheme.onPrimary.withAlpha((0.9 * 255).round()),
+              size: 20,
+            ),
+          ),
     );
   }
 
@@ -267,8 +272,8 @@ class _TrackingScreenState extends State<TrackingScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('🚴‍♂️ CycleTracker'),
-        backgroundColor: Colors.blue,
-        foregroundColor: Colors.white,
+        backgroundColor: Theme.of(context).colorScheme.primary,
+        foregroundColor: Theme.of(context).colorScheme.onPrimary,
         actions: [
           // Indicador de estado de mapas
           _buildConnectionIndicator(),
@@ -329,7 +334,7 @@ class _TrackingScreenState extends State<TrackingScreen> {
                       Polyline(
                         points: _trackingData.routePoints,
                         strokeWidth: 4.0,
-                        color: Colors.blue,
+                        color: Theme.of(context).colorScheme.primary,
                       ),
                     ],
                   ),
@@ -344,10 +349,10 @@ class _TrackingScreenState extends State<TrackingScreen> {
                         child: Container(
                           decoration: BoxDecoration(
                             color: _trackingData.isTracking 
-                                ? (_trackingData.isPaused ? Colors.orange : Colors.red)
+                    ? (_trackingData.isPaused ? Colors.orange : Theme.of(context).colorScheme.primary)
                                 : Colors.grey,
                             shape: BoxShape.circle,
-                            border: Border.all(color: Colors.white, width: 2),
+                            border: Border.all(color: Theme.of(context).colorScheme.onPrimary, width: 2),
                           ),
                         ),
                       ),

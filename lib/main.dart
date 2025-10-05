@@ -23,13 +23,15 @@ class _CycleAppState extends State<CycleApp> {
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(
-          seedColor: Colors.blue,
+          seedColor: const Color(0xFF764BA2), // violeta principal
           brightness: Brightness.light,
         ),
         useMaterial3: true,
-        appBarTheme: const AppBarTheme(
+        appBarTheme: AppBarTheme(
           centerTitle: true,
           elevation: 0,
+          backgroundColor: ColorScheme.fromSeed(seedColor: const Color(0xFF764BA2)).primary,
+          foregroundColor: ThemeData().colorScheme.onPrimary,
         ),
         cardTheme: CardTheme(
           elevation: 2,
@@ -38,12 +40,18 @@ class _CycleAppState extends State<CycleApp> {
           ),
         ),
         elevatedButtonTheme: ElevatedButtonThemeData(
-          style: ElevatedButton.styleFrom(
+            style: ElevatedButton.styleFrom(
+            backgroundColor: ColorScheme.fromSeed(seedColor: const Color(0xFF764BA2)).primary,
+            foregroundColor: ThemeData().colorScheme.onPrimary,
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(8),
             ),
             padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
           ),
+        ),
+        floatingActionButtonTheme: const FloatingActionButtonThemeData(
+          backgroundColor: Color(0xFF764BA2),
+          foregroundColor: Colors.white,
         ),
       ),
       home: _showSplash 
