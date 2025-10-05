@@ -232,31 +232,39 @@ class MapCacheService {
   }
 
   // Descargar tile individual con manejo mejorado de errores
-  Future<int> _downloadTile(int x, int y, int z, String areaId) async {
+  Future<int> _downloadTile(int x, int y, int z, String areaId, {bool forceDownload = false}) async {
   final tileId = '${z}_${x}_${y}';
     // Abort early if cancellation requested
     if (_isCancelled) return 0;
     // Verificar si ya existe
-    final existingTiles = await _database!.query(
-      'cached_tiles',
-      where: 'x = ? AND y = ? AND z = ?',
-      whereArgs: [x, y, z],
-    );
-    
-    if (existingTiles.isNotEmpty) {
-      // Verificar que el archivo físico existe
-      final filePath = existingTiles.first['filePath'] as String;
-      final file = File(filePath);
-      if (await file.exists()) {
-        return existingTiles.first['sizeBytes'] as int; // Ya descargado
-      } else {
-        // Archivo no existe, limpiar de DB y re-descargar
-        await _database!.delete(
-          'cached_tiles',
-          where: 'x = ? AND y = ? AND z = ?',
-          whereArgs: [x, y, z],
-        );
+    if (!forceDownload) {
+      final existingTiles = await _database!.query(
+        'cached_tiles',
+        where: 'x = ? AND y = ? AND z = ?',
+        whereArgs: [x, y, z],
+      );
+      if (existingTiles.isNotEmpty) {
+        // Verificar que el archivo físico existe
+        final filePath = existingTiles.first['filePath'] as String;
+        final file = File(filePath);
+        if (await file.exists()) {
+          return existingTiles.first['sizeBytes'] as int; // Ya descargado
+        } else {
+          // Archivo no existe, limpiar de DB y re-descargar
+          await _database!.delete(
+            'cached_tiles',
+            where: 'x = ? AND y = ? AND z = ?',
+            whereArgs: [x, y, z],
+          );
+        }
       }
+    } else {
+      // Forzar: eliminar metadata previa para re-descarga
+      await _database!.delete(
+        'cached_tiles',
+        where: 'x = ? AND y = ? AND z = ?',
+        whereArgs: [x, y, z],
+      );
     }
 
   final url = tileUrlTemplate
@@ -441,7 +449,9 @@ class MapCacheService {
     double maxLng, {
     int minZoom = defaultMinZoom,
     int maxZoom = defaultMaxZoom,
-    Function(int downloaded, int total)? onProgress,
+    /// onProgress: (processedTiles, totalTiles, newlyDownloadedTiles)
+    Function(int processed, int total, int newDownloaded)? onProgress,
+    bool forceDownload = false,
   }) async {
   // Resetear estado de cancelación y marcar descarga activa
   _resetCancellation();
@@ -457,15 +467,17 @@ class MapCacheService {
   int totalTiles = 0;
   int downloadedTiles = 0;
     
-    // Calcular total de tiles
+    // Calcular total de tiles y generar resumen por zoom
+    final Map<int, int> perZoom = {};
     for (int zoom = minZoom; zoom <= maxZoom; zoom++) {
       final tiles = _getTilesForRegion(minLat, maxLat, minLng, maxLng, zoom);
-  debugPrint('downloadRegion: zoom=$zoom tiles=${tiles.length}');
-        totalTiles += tiles.length;
+      perZoom[zoom] = tiles.length;
+      debugPrint('downloadRegion: zoom=$zoom tiles=${tiles.length}');
+      totalTiles += tiles.length;
     }
     
-  // Reportar progreso inicial
-  onProgress?.call(0, totalTiles);
+  // Reportar progreso inicial (processed=0, total, newDownloaded=0)
+  onProgress?.call(0, totalTiles, 0);
   debugPrint('downloadRegion: totalTiles=$totalTiles minZoom=$minZoom maxZoom=$maxZoom');
 
   // Si no hay tiles que descargar, abortar y loguear claramente
@@ -474,6 +486,8 @@ class MapCacheService {
     _activeDownload = false;
     return;
   }
+
+  // (moved: see class-level getTileCountsForRegion)
     
     // Descargar por nivel de zoom en batches
     for (int zoom = minZoom; zoom <= maxZoom; zoom++) {
@@ -501,7 +515,7 @@ class MapCacheService {
           final futures = chunk.map((tile) async {
             if (_isCancelled) return 0;
             try {
-              return await _downloadTileWithRetry(tile['x']!, tile['y']!, zoom, tempId);
+              return await _downloadTileWithRetry(tile['x']!, tile['y']!, zoom, tempId, forceDownload: forceDownload);
             } catch (e) {
               if (kDebugMode) debugPrint('Tile error: $e');
               return 0;
@@ -522,7 +536,8 @@ class MapCacheService {
           downloadedTiles += chunk.length;
           final newTiles = results.where((s) => s > 0).length;
           debugPrint('Chunk result: $newTiles downloaded new tiles, chunk processed ${chunk.length} items. downloadedTiles so far=$downloadedTiles totalTiles=$totalTiles');
-          onProgress?.call(downloadedTiles, totalTiles);
+          // Ahora reportamos processed, total y nuevos descargados en este chunk
+          onProgress?.call(downloadedTiles, totalTiles, newTiles);
 
           // Pausa corta entre chunks
           await Future.delayed(const Duration(milliseconds: 10));
@@ -535,11 +550,11 @@ class MapCacheService {
   }
 
   // Método con reintentos para tiles individuales
-  Future<int> _downloadTileWithRetry(int x, int y, int z, String areaId, {int maxRetries = 2}) async {
+  Future<int> _downloadTileWithRetry(int x, int y, int z, String areaId, {int maxRetries = 2, bool forceDownload = false}) async {
     for (int attempt = 0; attempt <= maxRetries; attempt++) {
-      debugPrint('downloadTileWithRetry: tile=$z/$x/$y attempt=${attempt+1}/$maxRetries area=$areaId');
+      debugPrint('downloadTileWithRetry: tile=$z/$x/$y attempt=${attempt+1}/$maxRetries area=$areaId force=$forceDownload');
       try {
-        return await _downloadTile(x, y, z, areaId);
+        return await _downloadTile(x, y, z, areaId, forceDownload: forceDownload);
       } catch (e) {
         if (attempt == maxRetries) {
           debugPrint('Failed to download tile after $maxRetries retries: $x,$y,$z');
@@ -577,6 +592,80 @@ class MapCacheService {
     }
     
     return tiles;
+  }
+
+  /// Devuelve un mapa con el conteo de tiles por zoom y el total para una región
+  Map<String, dynamic> getTileCountsForRegion(
+    double minLat,
+    double maxLat,
+    double minLng,
+    double maxLng, {
+    int minZoom = defaultMinZoom,
+    int maxZoom = defaultMaxZoom,
+  }) {
+    int total = 0;
+    final Map<int, int> perZoom = {};
+    for (int z = minZoom; z <= maxZoom; z++) {
+      final tiles = _getTilesForRegion(minLat, maxLat, minLng, maxLng, z);
+      perZoom[z] = tiles.length;
+      total += tiles.length;
+    }
+    return {'total': total, 'perZoom': perZoom};
+  }
+
+  /// Cuenta cuántos tiles ya existen en la caché para la región y rango de zooms
+  /// Devuelve: { 'total': int, 'existing': int, 'perZoom': {z: totalAtZ}, 'perZoomExisting': {z: existsAtZ} }
+  Future<Map<String, dynamic>> countExistingTilesForRegion(
+    double minLat,
+    double maxLat,
+    double minLng,
+    double maxLng, {
+    int minZoom = defaultMinZoom,
+    int maxZoom = defaultMaxZoom,
+  }) async {
+    int total = 0;
+    int existing = 0;
+    final Map<int, int> perZoom = {};
+    final Map<int, int> perZoomExisting = {};
+
+    for (int z = minZoom; z <= maxZoom; z++) {
+      final tiles = _getTilesForRegion(minLat, maxLat, minLng, maxLng, z);
+      perZoom[z] = tiles.length;
+      total += tiles.length;
+
+      int existsAtZ = 0;
+      // Para cada tile preguntamos a la DB si existe (optimizable con query IN)
+      for (final tile in tiles) {
+        final rows = await _database!.query(
+          'cached_tiles',
+          where: 'x = ? AND y = ? AND z = ?',
+          whereArgs: [tile['x'], tile['y'], z],
+          limit: 1,
+        );
+        if (rows.isNotEmpty) {
+          final filePath = rows.first['filePath'] as String?;
+          if (filePath != null) {
+            final f = File(filePath);
+            if (await f.exists()) {
+              existsAtZ++;
+            } else {
+              // si metadata existe pero archivo falta, limpiamos la fila para futuras contadas
+              await _database!.delete('cached_tiles', where: 'x = ? AND y = ? AND z = ?', whereArgs: [tile['x'], tile['y'], z]);
+            }
+          }
+        }
+      }
+
+      perZoomExisting[z] = existsAtZ;
+      existing += existsAtZ;
+    }
+
+    return {
+      'total': total,
+      'existing': existing,
+      'perZoom': perZoom,
+      'perZoomExisting': perZoomExisting,
+    };
   }
 
   // Cancelar descarga actual
