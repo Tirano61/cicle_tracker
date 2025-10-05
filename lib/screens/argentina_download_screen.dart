@@ -400,33 +400,91 @@ class _ArgentinaDownloadScreenState extends State<ArgentinaDownloadScreen> {
           .where((province) => _selectedProvinces.contains(province.code))
           .toList();
 
-      // Comprobar si el total estimado de tiles es muy grande y pedir confirmación
-      final totalsCheck = ArgentinaRegions.calculateTotals(selectedProvincesData);
-      final estimatedTiles = totalsCheck['tiles'] as int;
+      // Calcular total real usando el servicio de cache para obtener conteos por zoom
+      // (usamos los mismos zooms que usará la descarga: 8..15)
+      final boundsMinLat = selectedProvincesData.map((p) => p.minLat).reduce((a, b) => a < b ? a : b);
+      final boundsMaxLat = selectedProvincesData.map((p) => p.maxLat).reduce((a, b) => a > b ? a : b);
+      final boundsMinLng = selectedProvincesData.map((p) => p.minLng).reduce((a, b) => a < b ? a : b);
+      final boundsMaxLng = selectedProvincesData.map((p) => p.maxLng).reduce((a, b) => a > b ? a : b);
+
+      final counts = _mapCacheService.getTileCountsForRegion(
+        boundsMinLat,
+        boundsMaxLat,
+        boundsMinLng,
+        boundsMaxLng,
+        minZoom: 9,
+        maxZoom: 12,
+      );
+
+      final estimatedTiles = counts['total'] as int;
+      // Contador asíncrono para saber cuántos tiles ya existen en caché
+      final existingResult = await _mapCacheService.countExistingTilesForRegion(
+        boundsMinLat,
+        boundsMaxLat,
+        boundsMinLng,
+        boundsMaxLng,
+        minZoom: 9,
+        maxZoom: 12,
+      );
+
+      final existingTiles = existingResult['existing'] as int;
+      final missingTiles = estimatedTiles - existingTiles;
+
       const int largeThreshold = 10000; // umbral para advertir
+      bool dialogForceDownload = false;
       if (estimatedTiles > largeThreshold) {
-        final proceed = await showDialog<bool>(
+        // Mostrar diálogo con conteos y una opción para descargar solo faltantes
+        final bool? downloadOnlyMissing = await showDialog<bool>(
           context: context,
-          builder: (context) => AlertDialog(
-            title: const Text('Descarga muy grande'),
-            content: Text('Has seleccionado aproximadamente $estimatedTiles tiles. Esto puede tardar mucho y consumir espacio. ¿Deseas continuar?'),
-            actions: [
-              TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancelar')),
-              ElevatedButton(onPressed: () => Navigator.pop(context, true), child: const Text('Continuar')),
-            ],
-          ),
+          builder: (context) => StatefulBuilder(builder: (context, setStateDialog) {
+            bool _downloadOnlyMissingLocal = true;
+            return AlertDialog(
+              title: const Text('Descarga muy grande'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Total tiles en la selección: $estimatedTiles'),
+                  Text('Ya en caché: $existingTiles'),
+                  Text('Faltantes a descargar: $missingTiles'),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Checkbox(
+                        value: _downloadOnlyMissingLocal,
+                        onChanged: (v) => setStateDialog(() => _downloadOnlyMissingLocal = v ?? true),
+                      ),
+                      const Expanded(child: Text('Descargar solo los tiles faltantes (recomendado)')),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  Text('Esto puede tardar mucho y consumir espacio.'),
+                ],
+              ),
+              actions: [
+                TextButton(onPressed: () => Navigator.pop(context, null), child: const Text('Cancelar')),
+                ElevatedButton(onPressed: () => Navigator.pop(context, _downloadOnlyMissingLocal), child: const Text('Continuar')),
+              ],
+            );
+          }),
         );
 
         if (!mounted) return;
 
-        if (proceed != true) {
+        if (downloadOnlyMissing == null) {
           setState(() {
             _isDownloading = false;
             _downloadProgress = 0.0;
           });
           return;
         }
+
+        // Si el usuario eligió descargar solo faltantes, no forzamos; de lo contrario forzamos re-descarga
+        dialogForceDownload = !(downloadOnlyMissing);
       }
+
+      // Determinar el flag final para forzar re-descarga: si el usuario marcó el checkbox global o via diálogo
+      final bool forceForAll = _forceRedownload || dialogForceDownload;
 
       int completedProvinces = 0;
       final totalProvinces = selectedProvincesData.length;
@@ -450,18 +508,18 @@ class _ArgentinaDownloadScreenState extends State<ArgentinaDownloadScreen> {
         _currentProvinceTilesDownloaded = 0;
         _currentProvinceTilesTotal = 0;
 
-  try {
+          try {
           // Verificar si la provincia ya está completa
           final isComplete = await _mapCacheService.isRegionComplete(
             province.minLat,
             province.maxLat,
             province.minLng,
             province.maxLng,
-            minZoom: 8,
-            maxZoom: 15,
+            minZoom: 9,
+            maxZoom: 12,
           );
 
-          if (isComplete && !_forceRedownload) {
+          if (isComplete && !forceForAll) {
             if (kDebugMode) debugPrint('${province.name} ya está descargada completamente');
             if (mounted) {
               ScaffoldMessenger.of(context).showSnackBar(
@@ -482,18 +540,19 @@ class _ArgentinaDownloadScreenState extends State<ArgentinaDownloadScreen> {
               province.maxLat,
               province.minLng,
               province.maxLng,
-              minZoom: 8,
-              maxZoom: 15,
-              onProgress: (downloaded, total) {
-                if (mounted) {
-                  setState(() {
-                    _currentProvinceTilesDownloaded = downloaded;
-                    _currentProvinceTilesTotal = total;
-                    final provinceProgress = total > 0 ? (downloaded / total) : 0.0;
-                    _downloadProgress = (completedProvinces + provinceProgress) / totalProvinces;
-                  });
-                }
-              },
+              minZoom: 9,
+              maxZoom: 12,
+              forceDownload: forceForAll,
+              onProgress: (processed, total, newDownloaded) {
+                  if (mounted) {
+                    setState(() {
+                      _currentProvinceTilesDownloaded = processed;
+                      _currentProvinceTilesTotal = total;
+                      final provinceProgress = total > 0 ? (processed / total) : 0.0;
+                      _downloadProgress = (completedProvinces + provinceProgress) / totalProvinces;
+                    });
+                  }
+                },
             );
           }
           
