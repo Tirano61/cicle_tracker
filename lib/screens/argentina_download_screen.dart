@@ -687,9 +687,11 @@ class _ArgentinaDownloadScreenState extends State<ArgentinaDownloadScreen> {
                   }
                 },
             );
+            // Tras una descarga exitosa de la provincia, limitar la sesión al maxZoom del area creada
+            // 'area' está en alcance aquí porque fue creado arriba en este bloque.
+            _mapCacheService.setSessionMaxZoom(area.maxZoom);
+            if (kDebugMode) debugPrint('CICLE-UI: session max zoom set to ${area.maxZoom} for ${province.name}');
           }
-            // Tras una descarga exitosa de la provincia, limitar la sesión a maxZoom=14
-            MapCacheService().setSessionMaxZoom(14);
           
           completedProvinces++;
           if (kDebugMode) debugPrint('Completed province: ${province.name}');
