@@ -37,10 +37,40 @@ class MapCacheService {
   static const int defaultMaxZoom = 18;
   static const int defaultMinZoom = 10;
 
+  // Session-limited zoom control: si se han descargado tiles para sesión, limitar zoom en la UI
+  static int? _sessionMaxZoom;
+  final StreamController<int?> _sessionZoomController = StreamController<int?>.broadcast();
+
+  /// Stream que notifica cambios en el max zoom de sesión (null = ilimitado)
+  Stream<int?> get sessionZoomStream => _sessionZoomController.stream;
+
+  /// Valor actual del max zoom de sesión (null = no limitado)
+  int? get sessionMaxZoom => _sessionMaxZoom;
+
+  /// Establecer/limpiar el max zoom de sesión. Llamar con null para permitir zooms online completos.
+  void setSessionMaxZoom(int? z) {
+    _sessionMaxZoom = z;
+    try {
+      _sessionZoomController.add(_sessionMaxZoom);
+    } catch (_) {}
+  }
+
   // Inicializar el servicio
   Future<void> initialize() async {
-    await _initializeDatabase();
-    await _initializeCacheDirectory();
+    try {
+      await _initializeDatabase();
+      if (kDebugMode) debugPrint('CICLE-INIT: Database initialized');
+    } catch (e) {
+      if (kDebugMode) debugPrint('CICLE-INIT: Database initialization failed: $e');
+    }
+
+    try {
+      await _initializeCacheDirectory();
+      if (kDebugMode) debugPrint('CICLE-INIT: Cache directory initialized at $_cacheDirectory');
+    } catch (e) {
+      if (kDebugMode) debugPrint('CICLE-INIT: Cache directory initialization failed: $e');
+    }
+
     _configureDio();
   }
 
@@ -155,7 +185,29 @@ class MapCacheService {
     final totalTiles = area.calculateTotalTiles();
     final updatedArea = area.copyWith(totalTiles: totalTiles);
 
-    await _database!.insert('map_areas', updatedArea.toMap());
+    // Defensive insert: ensure DB is initialized and log aggressively so we can
+    // observe this flow on-device during debugging (use print + debugPrint).
+    try {
+      if (_database == null) {
+        if (kDebugMode) debugPrint('CICLE-AREA: _database is null, attempting to initialize DB before insert');
+        print('CICLE-AREA: _database is null, attempting to initialize DB before insert');
+        await _initializeDatabase();
+      }
+
+      if (_database != null) {
+        if (kDebugMode) debugPrint('CICLE-AREA: inserting area ${updatedArea.id} name=${updatedArea.name} totalTiles=${updatedArea.totalTiles}');
+        print('CICLE-AREA: inserting area ${updatedArea.id} name=${updatedArea.name} totalTiles=${updatedArea.totalTiles}');
+        await _database!.insert('map_areas', updatedArea.toMap());
+        if (kDebugMode) debugPrint('CICLE-AREA: Created area ${updatedArea.id} name=${updatedArea.name} totalTiles=${updatedArea.totalTiles}');
+        print('CICLE-AREA: Created area ${updatedArea.id} name=${updatedArea.name} totalTiles=${updatedArea.totalTiles}');
+      } else {
+        if (kDebugMode) debugPrint('CICLE-AREA: DB still null after initialize - skipping persistent insert');
+        print('CICLE-AREA: DB still null after initialize - skipping persistent insert');
+      }
+    } catch (e) {
+      if (kDebugMode) debugPrint('CICLE-AREA: Failed to insert area ${updatedArea.id}: $e');
+      print('CICLE-AREA: Failed to insert area ${updatedArea.id}: $e');
+    }
     return updatedArea;
   }
 
@@ -273,7 +325,7 @@ class MapCacheService {
     .replaceAll('{y}', y.toString());
 
     try {
-  if (kDebugMode) debugPrint('Downloading tile URL: $url');
+  if (kDebugMode) debugPrint('CICLE-TILE: Downloading tile URL: $url');
       final response = await _dio.get<Uint8List>(
         url,
         options: Options(
@@ -298,6 +350,7 @@ class MapCacheService {
         
         // Verificar que el archivo se escribió correctamente
         if (await file.exists()) {
+          if (kDebugMode) debugPrint('CICLE-TILE: Wrote tile to $filePath (bytes=${response.data!.length})');
           // Guardar metadata en DB
           await _database!.insert('cached_tiles', {
             'id': tileId,
@@ -311,14 +364,14 @@ class MapCacheService {
           }, conflictAlgorithm: ConflictAlgorithm.replace);
 
           return response.data!.length;
-        } else {
-          if (kDebugMode) debugPrint('File write failed for tile $x,$y,$z at $filePath');
+          } else {
+          if (kDebugMode) debugPrint('CICLE-TILE: File write failed for tile $x,$y,$z at $filePath');
         }
         } else {
-  if (kDebugMode) debugPrint('Invalid response for tile $x,$y,$z: status=${response.statusCode}');
+  if (kDebugMode) debugPrint('CICLE-TILE: Invalid response for tile $x,$y,$z: status=${response.statusCode}');
       }
     } catch (e) {
-  if (kDebugMode) debugPrint('Network error downloading tile $x,$y,$z: $e');
+  if (kDebugMode) debugPrint('CICLE-TILE: Network error downloading tile $x,$y,$z: $e');
       // Re-throw para que el retry handler lo maneje
       rethrow;
     }
@@ -351,26 +404,98 @@ class MapCacheService {
 
   // Verificar si un tile está disponible en cache
   Future<String?> getCachedTilePath(int x, int y, int z) async {
-    final tiles = await _database!.query(
-      'cached_tiles',
-      where: 'x = ? AND y = ? AND z = ?',
-      whereArgs: [x, y, z],
-    );
+    // Hacer la función robusta si el servicio no fue inicializado todavía.
+    try {
+      if (_database == null) {
+        await _initializeDatabase();
+      }
+    } catch (e) {
+      if (kDebugMode) debugPrint('getCachedTilePath: failed to init DB: $e');
+      // Continuamos con la búsqueda en disco si es posible
+    }
 
-    if (tiles.isNotEmpty) {
-      final filePath = tiles.first['filePath'] as String;
-      final file = File(filePath);
-      
-      if (await file.exists()) {
-        return filePath;
-      } else {
-        // Archivo no existe, limpiar de DB
-        await _database!.delete(
+    // Intentar usar la metadata de la DB si está disponible
+    try {
+      final db = _database;
+      if (db != null) {
+        final tiles = await db.query(
           'cached_tiles',
           where: 'x = ? AND y = ? AND z = ?',
           whereArgs: [x, y, z],
+          limit: 1,
         );
+
+        if (tiles.isNotEmpty) {
+          final filePath = tiles.first['filePath'] as String?;
+          if (filePath != null && filePath.isNotEmpty) {
+            final file = File(filePath);
+            if (await file.exists()) {
+              return filePath;
+            } else {
+              // Archivo no existe, limpiar de DB para permitir fallback
+              try {
+                await db.delete(
+                  'cached_tiles',
+                  where: 'x = ? AND y = ? AND z = ?',
+                  whereArgs: [x, y, z],
+                );
+              } catch (_) {}
+            }
+          }
+        }
       }
+    } catch (e) {
+      if (kDebugMode) debugPrint('getCachedTilePath: DB lookup error: $e');
+      // Seguir con fallback en disco
+    }
+
+    // Si no hay metadata válida o DB no disponible, buscar por convención en disco: map_tiles/<areaId>/<z>/<x>_<y>.png
+    try {
+      if (_cacheDirectory == null) {
+        await _initializeCacheDirectory();
+      }
+
+      final cacheRootPath = _cacheDirectory;
+      if (cacheRootPath == null) return null;
+
+      final cacheRoot = Directory(cacheRootPath);
+      if (await cacheRoot.exists()) {
+        // Buscar recursivamente en subcarpetas de areaId
+        await for (final areaDir in cacheRoot.list(followLinks: false)) {
+          if (areaDir is Directory) {
+            final candidate = path.join(areaDir.path, z.toString(), '${x}_${y}.png');
+            try {
+              final f = File(candidate);
+              if (await f.exists()) {
+                // Insertar metadata en DB usando el areaId tomado del nombre de carpeta (si hay DB)
+                final areaId = path.basename(areaDir.path);
+                final tileId = '${z}_${x}_${y}';
+                try {
+                  if (_database != null) {
+                    await _database!.insert('cached_tiles', {
+                      'id': tileId,
+                      'areaId': areaId,
+                      'x': x,
+                      'y': y,
+                      'z': z,
+                      'filePath': candidate,
+                      'downloadedAt': DateTime.now().millisecondsSinceEpoch,
+                      'sizeBytes': await f.length(),
+                    }, conflictAlgorithm: ConflictAlgorithm.replace);
+                  }
+                } catch (e) {
+                  if (kDebugMode) debugPrint('getCachedTilePath: failed to insert metadata for $candidate: $e');
+                }
+                return candidate;
+              }
+            } catch (e) {
+              if (kDebugMode) debugPrint('getCachedTilePath: file check failed for $candidate: $e');
+            }
+          }
+        }
+      }
+    } catch (e) {
+      if (kDebugMode) debugPrint('getCachedTilePath: disk fallback search error: $e');
     }
 
     return null;
@@ -447,6 +572,7 @@ class MapCacheService {
     double maxLat,
     double minLng,
     double maxLng, {
+    String? areaId,
     int minZoom = defaultMinZoom,
     int maxZoom = defaultMaxZoom,
     /// onProgress: (processedTiles, totalTiles, newlyDownloadedTiles)
@@ -461,8 +587,13 @@ class MapCacheService {
   const int batchSize = 50; // tiles por batch
   const int concurrency = 6; // descargas paralelas por chunk
 
-  // Crear área temporal
-  final tempId = 'temp_${DateTime.now().millisecondsSinceEpoch}';
+  // Determinar el id usado para almacenar tiles (puede ser persistente o temporal)
+  final storageAreaId = areaId ?? 'temp_${DateTime.now().millisecondsSinceEpoch}';
+
+  // Extra visible prints for device logcat
+  if (kDebugMode) debugPrint('CICLE-DL: downloadRegion start storageAreaId=$storageAreaId minZoom=$minZoom maxZoom=$maxZoom');
+  // Use print() too to ensure messages appear even if debugPrint is filtered differently
+  print('CICLE-DL: downloadRegion start storageAreaId=$storageAreaId minZoom=$minZoom maxZoom=$maxZoom');
 
   int totalTiles = 0;
   int downloadedTiles = 0;
@@ -479,6 +610,7 @@ class MapCacheService {
   // Reportar progreso inicial (processed=0, total, newDownloaded=0)
   onProgress?.call(0, totalTiles, 0);
   debugPrint('downloadRegion: totalTiles=$totalTiles minZoom=$minZoom maxZoom=$maxZoom');
+  print('CICLE-DL: downloadRegion totalTiles=$totalTiles minZoom=$minZoom maxZoom=$maxZoom');
 
   // Si no hay tiles que descargar, abortar y loguear claramente
   if (totalTiles == 0) {
@@ -510,12 +642,13 @@ class MapCacheService {
         for (int j = 0; j < batch.length; j += concurrency) {
           final chunkEnd = (j + concurrency < batch.length) ? j + concurrency : batch.length;
           final chunk = batch.sublist(j, chunkEnd);
-          debugPrint('Processing chunk: startIndex=$j endIndex=$chunkEnd chunkSize=${chunk.length} (zoom $zoom)');
+          debugPrint('CICLE-DL: Processing chunk: startIndex=$j endIndex=$chunkEnd chunkSize=${chunk.length} (zoom $zoom)');
+          print('CICLE-DL: Processing chunk: startIndex=$j endIndex=$chunkEnd chunkSize=${chunk.length} (zoom $zoom)');
 
           final futures = chunk.map((tile) async {
             if (_isCancelled) return 0;
             try {
-              return await _downloadTileWithRetry(tile['x']!, tile['y']!, zoom, tempId, forceDownload: forceDownload);
+              return await _downloadTileWithRetry(tile['x']!, tile['y']!, zoom, storageAreaId, forceDownload: forceDownload);
             } catch (e) {
               if (kDebugMode) debugPrint('Tile error: $e');
               return 0;
@@ -527,15 +660,18 @@ class MapCacheService {
           final actualDownloads = results.where((size) => size > 0).length;
           if (actualDownloads < chunk.length) {
             final existing = chunk.length - actualDownloads;
-            debugPrint('Chunk: $actualDownloads nuevos, $existing ya existían (zoom $zoom)');
+            debugPrint('CICLE-DL: Chunk: $actualDownloads nuevos, $existing ya existían (zoom $zoom)');
+            print('CICLE-DL: Chunk: $actualDownloads new, $existing existed (zoom $zoom)');
           } else {
-            debugPrint('Chunk completed: $actualDownloads new tiles (zoom $zoom)');
+            debugPrint('CICLE-DL: Chunk completed: $actualDownloads new tiles (zoom $zoom)');
+            print('CICLE-DL: Chunk completed: $actualDownloads new tiles (zoom $zoom)');
           }
 
           // Contar todos los tiles del chunk como procesados para el progreso (incluye ya existentes)
           downloadedTiles += chunk.length;
           final newTiles = results.where((s) => s > 0).length;
-          debugPrint('Chunk result: $newTiles downloaded new tiles, chunk processed ${chunk.length} items. downloadedTiles so far=$downloadedTiles totalTiles=$totalTiles');
+          debugPrint('CICLE-DL: Chunk result: $newTiles downloaded new tiles, chunk processed ${chunk.length} items. downloadedTiles so far=$downloadedTiles totalTiles=$totalTiles');
+          print('CICLE-DL: Chunk result: $newTiles new tiles, processed ${chunk.length} items. processedSoFar=$downloadedTiles total=$totalTiles');
           // Ahora reportamos processed, total y nuevos descargados en este chunk
           onProgress?.call(downloadedTiles, totalTiles, newTiles);
 
@@ -543,6 +679,37 @@ class MapCacheService {
           await Future.delayed(const Duration(milliseconds: 10));
         }
       }
+    }
+
+    // Antes de marcar descarga finalizada, si usamos un areaId persistente, actualizar metadata en map_areas
+    try {
+      // Si existe una tabla map_areas y la area fue persistente (no temp_), actualizamos sus contadores
+  if (!storageAreaId.startsWith('temp_')) {
+        final countResult = await _database!.rawQuery(
+          'SELECT COUNT(*) as cnt, COALESCE(SUM(sizeBytes), 0) as totalBytes FROM cached_tiles WHERE areaId = ?',
+          [storageAreaId],
+        );
+        final cnt = (countResult.first['cnt'] as num).toInt();
+        final totalBytes = (countResult.first['totalBytes'] as num).toInt();
+
+        final sizeMB = totalBytes / (1024 * 1024);
+
+        // Actualizar totalTiles también si aplica (usar total calculado para la petición actual)
+        await _database!.update(
+          'map_areas',
+          {
+            'downloadedTiles': cnt,
+            'sizeInMB': sizeMB,
+            'downloadedAt': DateTime.now().millisecondsSinceEpoch,
+            'totalTiles': totalTiles,
+          },
+          where: 'id = ?',
+          whereArgs: [storageAreaId],
+        );
+      }
+    } catch (e) {
+          if (kDebugMode) debugPrint('CICLE-DL: downloadRegion: failed to update map_areas metadata for $storageAreaId: $e');
+          print('CICLE-DL: downloadRegion: failed to update map_areas metadata for $storageAreaId: $e');
     }
 
     // Marcar descarga finalizada
@@ -553,11 +720,13 @@ class MapCacheService {
   Future<int> _downloadTileWithRetry(int x, int y, int z, String areaId, {int maxRetries = 2, bool forceDownload = false}) async {
     for (int attempt = 0; attempt <= maxRetries; attempt++) {
       debugPrint('downloadTileWithRetry: tile=$z/$x/$y attempt=${attempt+1}/$maxRetries area=$areaId force=$forceDownload');
+      print('CICLE-TILE: downloadTileWithRetry: tile=$z/$x/$y attempt=${attempt+1}/${maxRetries+1} area=$areaId force=$forceDownload');
       try {
         return await _downloadTile(x, y, z, areaId, forceDownload: forceDownload);
       } catch (e) {
         if (attempt == maxRetries) {
           debugPrint('Failed to download tile after $maxRetries retries: $x,$y,$z');
+          print('CICLE-TILE: Failed to download tile after $maxRetries retries: $x,$y,$z');
           return 0; // Falló definitivamente
         }
         // Esperar un poco antes del siguiente intento
@@ -628,37 +797,49 @@ class MapCacheService {
     final Map<int, int> perZoom = {};
     final Map<int, int> perZoomExisting = {};
 
-    for (int z = minZoom; z <= maxZoom; z++) {
-      final tiles = _getTilesForRegion(minLat, maxLat, minLng, maxLng, z);
-      perZoom[z] = tiles.length;
-      total += tiles.length;
-
-      int existsAtZ = 0;
-      // Para cada tile preguntamos a la DB si existe (optimizable con query IN)
-      for (final tile in tiles) {
-        final rows = await _database!.query(
-          'cached_tiles',
-          where: 'x = ? AND y = ? AND z = ?',
-          whereArgs: [tile['x'], tile['y'], z],
-          limit: 1,
-        );
-        if (rows.isNotEmpty) {
-          final filePath = rows.first['filePath'] as String?;
-          if (filePath != null) {
-            final f = File(filePath);
-            if (await f.exists()) {
-              existsAtZ++;
-            } else {
-              // si metadata existe pero archivo falta, limpiamos la fila para futuras contadas
-              await _database!.delete('cached_tiles', where: 'x = ? AND y = ? AND z = ?', whereArgs: [tile['x'], tile['y'], z]);
-            }
-          }
-        }
+    try {
+      if (_database == null) {
+        await _initializeDatabase();
       }
 
-      perZoomExisting[z] = existsAtZ;
-      existing += existsAtZ;
+      // Optimización: para cada zoom calculamos el rango de tiles (xStart..xEnd, yStart..yEnd)
+      // y realizamos una única consulta COUNT por zoom en lugar de una por tile.
+      for (int z = minZoom; z <= maxZoom; z++) {
+        final range = _getTileRangeForZoom(minLat, maxLat, minLng, maxLng, z);
+        final xStart = range['xStart'] as int;
+        final xEnd = range['xEnd'] as int;
+        final yStart = range['yStart'] as int;
+        final yEnd = range['yEnd'] as int;
+
+        final tilesAtZ = (xEnd - xStart + 1) * (yEnd - yStart + 1);
+        perZoom[z] = tilesAtZ;
+        total += tilesAtZ;
+
+        try {
+          final countResult = await _database!.rawQuery(
+            'SELECT COUNT(*) as cnt FROM cached_tiles WHERE z = ? AND x BETWEEN ? AND ? AND y BETWEEN ? AND ?',
+            [z, xStart, xEnd, yStart, yEnd],
+          );
+          final cnt = (countResult.first['cnt'] as num).toInt();
+          perZoomExisting[z] = cnt;
+          existing += cnt;
+        } catch (e) {
+          if (kDebugMode) debugPrint('countExistingTilesForRegion: DB aggregate count failed for z=$z: $e');
+          perZoomExisting[z] = 0;
+        }
+      }
+    } catch (e) {
+      if (kDebugMode) debugPrint('countExistingTilesForRegion: failed initializing DB or counting tiles: $e');
+      return {
+        'total': 0,
+        'existing': 0,
+        'perZoom': perZoom,
+        'perZoomExisting': perZoomExisting,
+      };
     }
+
+    if (kDebugMode) debugPrint('countExistingTilesForRegion: total=$total existing=$existing');
+    print('CICLE-COUNT: total=$total existing=$existing');
 
     return {
       'total': total,
@@ -666,6 +847,26 @@ class MapCacheService {
       'perZoom': perZoom,
       'perZoomExisting': perZoomExisting,
     };
+  }
+
+  // Helper para calcular rangos x/y por zoom sin generar listas completas
+  Map<String, int> _getTileRangeForZoom(double minLat, double maxLat, double minLng, double maxLng, int zoom) {
+    final scale = 1 << zoom;
+    final x1 = ((minLng + 180.0) / 360.0 * scale).floor();
+    final x2 = ((maxLng + 180.0) / 360.0 * scale).floor();
+
+    final lat1Rad = minLat * (pi / 180.0);
+    final lat2Rad = maxLat * (pi / 180.0);
+
+    final y1 = ((1.0 - log(tan(lat1Rad) + (1.0 / cos(lat1Rad))) / pi) / 2.0 * scale).floor();
+    final y2 = ((1.0 - log(tan(lat2Rad) + (1.0 / cos(lat2Rad))) / pi) / 2.0 * scale).floor();
+
+    final xStart = x1 <= x2 ? x1 : x2;
+    final xEnd = x1 <= x2 ? x2 : x1;
+    final yStart = y1 <= y2 ? y1 : y2;
+    final yEnd = y1 <= y2 ? y2 : y1;
+
+    return {'xStart': xStart, 'xEnd': xEnd, 'yStart': yStart, 'yEnd': yEnd};
   }
 
   // Cancelar descarga actual
@@ -696,34 +897,48 @@ class MapCacheService {
     int minZoom = defaultMinZoom,
     int maxZoom = defaultMaxZoom,
   }) async {
+    if (kDebugMode) debugPrint('CICLE-REG: isRegionComplete start minZoom=$minZoom maxZoom=$maxZoom');
+    print('CICLE-REG: isRegionComplete start minZoom=$minZoom maxZoom=$maxZoom');
+
     int totalExpected = 0;
     int totalExists = 0;
 
-    for (int zoom = minZoom; zoom <= maxZoom; zoom++) {
-      final tiles = _getTilesForRegion(minLat, maxLat, minLng, maxLng, zoom);
-      totalExpected += tiles.length;
-      
-      for (final tile in tiles) {
-        final existingTiles = await _database!.query(
-          'cached_tiles',
-          where: 'x = ? AND y = ? AND z = ?',
-          whereArgs: [tile['x'], tile['y'], zoom],
-        );
-        
-        if (existingTiles.isNotEmpty) {
-          // Verificar que el archivo físico existe
-          final filePath = existingTiles.first['filePath'] as String;
-          final file = File(filePath);
-          if (await file.exists()) {
-            totalExists++;
-          }
+    try {
+      if (_database == null) {
+        await _initializeDatabase();
+      }
+
+      for (int z = minZoom; z <= maxZoom; z++) {
+        final range = _getTileRangeForZoom(minLat, maxLat, minLng, maxLng, z);
+        final xStart = range['xStart'] as int;
+        final xEnd = range['xEnd'] as int;
+        final yStart = range['yStart'] as int;
+        final yEnd = range['yEnd'] as int;
+
+        final tilesAtZ = (xEnd - xStart + 1) * (yEnd - yStart + 1);
+        totalExpected += tilesAtZ;
+
+        try {
+          final countResult = await _database!.rawQuery(
+            'SELECT COUNT(*) as cnt FROM cached_tiles WHERE z = ? AND x BETWEEN ? AND ? AND y BETWEEN ? AND ?',
+            [z, xStart, xEnd, yStart, yEnd],
+          );
+          final cnt = (countResult.first['cnt'] as num).toInt();
+          totalExists += cnt;
+        } catch (e) {
+          if (kDebugMode) debugPrint('CICLE-REG: DB count failed for z=$z: $e');
         }
       }
+    } catch (e) {
+      if (kDebugMode) debugPrint('CICLE-REG: isRegionComplete failed: $e');
+      print('CICLE-REG: isRegionComplete failed: $e');
+      return false;
     }
 
     final completionPercentage = totalExpected > 0 ? (totalExists / totalExpected) * 100 : 0;
-  debugPrint('Región: $totalExists/$totalExpected tiles (${completionPercentage.toStringAsFixed(1)}%)');
-    
+    if (kDebugMode) debugPrint('CICLE-REG: Region: $totalExists/$totalExpected tiles (${completionPercentage.toStringAsFixed(1)}%)');
+    print('CICLE-REG: Region: $totalExists/$totalExpected tiles (${completionPercentage.toStringAsFixed(1)}%)');
+
     // Considerar completo si tiene al menos 95% de los tiles
     return completionPercentage >= 95.0;
   }

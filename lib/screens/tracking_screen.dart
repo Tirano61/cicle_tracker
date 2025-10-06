@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
@@ -17,6 +18,7 @@ import '../models/map_tile_provider.dart';
 import 'history_screen.dart';
 import 'settings_screen.dart';
 import 'argentina_download_screen.dart';
+import '../services/map_cache_service.dart';
 
 class TrackingScreen extends StatefulWidget {
   const TrackingScreen({super.key});
@@ -31,6 +33,12 @@ class _TrackingScreenState extends State<TrackingScreen> {
   final PreferencesService _preferencesService = PreferencesService();
   final CalorieCalculator _calorieCalculator = CalorieCalculator();
   final MapController _mapController = MapController();
+  int? _sessionMaxZoom;
+  StreamSubscription<int?>? _sessionZoomSub;
+  bool _userInteracted = false; // true cuando el usuario ha hecho pan/zoom manual
+  double _mapRotation = 0.0; // grados
+  DateTime? _lastZoomWarning;
+  final Duration _zoomWarnInterval = const Duration(seconds: 3);
 
   StreamSubscription<LiveTrackingData>? _trackingSubscription;
   
@@ -47,6 +55,12 @@ class _TrackingScreenState extends State<TrackingScreen> {
     _loadUserSettings();
     _initializeLocation();
     _listenToTracking();
+    // Escuchar cambios en el session max zoom
+    _sessionZoomSub = MapCacheService().sessionZoomStream.listen((z) {
+      setState(() {
+        _sessionMaxZoom = z;
+      });
+    });
   }
 
   @override
@@ -55,6 +69,7 @@ class _TrackingScreenState extends State<TrackingScreen> {
     _calorieTimer?.cancel();
     _recalculateTimer?.cancel();
     _locationService.dispose();
+    _sessionZoomSub?.cancel();
     super.dispose();
   }
 
@@ -70,7 +85,7 @@ class _TrackingScreenState extends State<TrackingScreen> {
 
   Future<void> _initializeLocation() async {
     final currentLocation = await _locationService.getCurrentLocation();
-    if (currentLocation != null && _isMapReady) {
+    if (currentLocation != null && _isMapReady && !_userInteracted) {
       _mapController.move(currentLocation, 16.0);
     }
   }
@@ -81,8 +96,8 @@ class _TrackingScreenState extends State<TrackingScreen> {
         _trackingData = data;
       });
 
-      // Mover mapa a ubicación actual si está trackeando
-      if (data.isTracking && data.currentLocation != null && _isMapReady) {
+      // Mover mapa a ubicación actual si está trackeando (solo si el usuario no intervino)
+      if (data.isTracking && data.currentLocation != null && _isMapReady && !_userInteracted) {
         _mapController.move(data.currentLocation!, 16.0);
       }
     });
@@ -312,21 +327,73 @@ class _TrackingScreenState extends State<TrackingScreen> {
           // Mapa
           Expanded(
             flex: 3,
-            child: FlutterMap(
-              mapController: _mapController,
-              options: MapOptions(
-                initialCenter: const LatLng(40.7128, -74.0060), // Nueva York por defecto
-                initialZoom: 16.0,
-                onMapReady: () {
-                  _isMapReady = true;
-                  _initializeLocation();
-                },
-              ),
+            child: Stack(
               children: [
-                CachedTileLayer(
-                  tileProvider: _currentMapProvider,
-                  userAgentPackageName: 'com.example.cicle_app',
-                ),
+                FlutterMap(
+                  mapController: _mapController,
+                  options: MapOptions(
+                    initialCenter: const LatLng(40.7128, -74.0060), // Nueva York por defecto
+                    // Inicializar zoom inicial a 12 si session limita, sino 16
+                    initialZoom: (_sessionMaxZoom != null && (_sessionMaxZoom! < 16)) ? _sessionMaxZoom!.toDouble() : 16.0,
+                    onMapReady: () {
+                      _isMapReady = true;
+                      _initializeLocation();
+                    },
+                    maxZoom: _sessionMaxZoom?.toDouble() ?? 18.0,
+                    // Detectar interacción del usuario (pan/zoom) y rotación
+                    onPositionChanged: (pos, hasGesture) {
+                      if (hasGesture == true) {
+                        setState(() {
+                          _userInteracted = true;
+                        });
+                      }
+                      // Algunos MapPosition exponen 'rotation' en grados
+                      try {
+                        final rot = pos.rotation;
+                        setState(() {
+                          _mapRotation = rot;
+                        });
+                      } catch (_) {
+                        // Si no existe la propiedad, ignoramos
+                      }
+
+                      // Protección: si la sesión tiene un maxZoom y el usuario intenta forzar más, revertimos y avisamos
+                      try {
+                        final currentZoom = pos.zoom;
+                        if (_sessionMaxZoom != null && currentZoom > _sessionMaxZoom!) {
+                          // Throttlear notificación para no spammear
+                          final now = DateTime.now();
+                          if (_lastZoomWarning == null || now.difference(_lastZoomWarning!) > _zoomWarnInterval) {
+                            _lastZoomWarning = now;
+                            if (mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text('Zoom limitado a ${_sessionMaxZoom} porque estás usando mapas descargados'),
+                                  duration: const Duration(seconds: 2),
+                                ),
+                              );
+                            }
+                          }
+
+                          // Forzar zoom de vuelta al máximo permitido
+                          try {
+                            final center = pos.center;
+                            // Mover mapa al zoom máximo permitido
+                            _mapController.move(center, _sessionMaxZoom!.toDouble());
+                          } catch (e) {
+                            // ignorar errores de move
+                          }
+                        }
+                      } catch (_) {
+                        // ignorar si pos.zoom no está disponible
+                      }
+                    },
+                  ),
+                  children: [
+                    CachedTileLayer(
+                      tileProvider: _currentMapProvider,
+                      userAgentPackageName: 'com.example.cicle_app',
+                    ),
                 // Ruta recorrida
                 if (_trackingData.routePoints.isNotEmpty)
                   PolylineLayer(
@@ -358,6 +425,59 @@ class _TrackingScreenState extends State<TrackingScreen> {
                       ),
                     ],
                   ),
+                  ],
+                ),
+
+                // Overlay: botón para centrar en la posición actual
+                Positioned(
+                  right: 12,
+                  bottom: 12,
+                  child: FloatingActionButton(
+                    mini: true,
+                    onPressed: () async {
+                      final loc = await _locationService.getCurrentLocation();
+                      if (loc != null && _isMapReady) {
+                        // permitir recentrar y restablecer flag de interacción
+                        setState(() {
+                          _userInteracted = false;
+                        });
+                        _mapController.move(loc, 16.0);
+                      } else {
+                        _showSnackBar('Ubicación no disponible', Theme.of(context).colorScheme.error);
+                      }
+                    },
+                    child: const Icon(Icons.my_location),
+                  ),
+                ),
+
+                // Overlay: brújula dinámica (N giratoria)
+                Positioned(
+                  right: 12,
+                  top: 12,
+                  child: TweenAnimationBuilder<double>(
+                    tween: Tween<double>(begin: 0.0, end: _mapRotation),
+                    duration: const Duration(milliseconds: 250),
+                    builder: (context, value, child) {
+                      // Rotamos en sentido contrario para que la N apunte al norte real
+                      final angleRad = -value * (math.pi / 180.0);
+                      return Transform.rotate(
+                        angle: angleRad,
+                        child: child,
+                      );
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.all(6),
+                      decoration: BoxDecoration(
+                        color: Theme.of(context).colorScheme.surface.withAlpha((0.9 * 255).round()),
+                        borderRadius: BorderRadius.circular(6),
+                        boxShadow: [
+                          BoxShadow(color: Colors.black.withOpacity(0.08), blurRadius: 4),
+                        ],
+                      ),
+                      child: const Text('N', style: TextStyle(fontWeight: FontWeight.bold)),
+                    ),
+                  ),
+                ),
               ],
             ),
           ),
