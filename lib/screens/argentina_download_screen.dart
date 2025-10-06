@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import '../models/argentina_regions.dart';
 import '../services/map_cache_service.dart';
+import 'package:latlong2/latlong.dart';
 
 class ArgentinaDownloadScreen extends StatefulWidget {
   const ArgentinaDownloadScreen({super.key});
@@ -20,6 +21,18 @@ class _ArgentinaDownloadScreenState extends State<ArgentinaDownloadScreen> {
   // Contadores de tiles para mostrar progreso real
   int _currentProvinceTilesDownloaded = 0;
   int _currentProvinceTilesTotal = 0;
+  // Estado de progreso por provincia (cached)
+  final Map<String, double> _provinceProgress = {};
+  bool _loadingProvinceProgress = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // Cargar el progreso de provincias al iniciar la pantalla
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _refreshProvinceProgress();
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -95,6 +108,22 @@ class _ArgentinaDownloadScreenState extends State<ArgentinaDownloadScreen> {
           ],
         ),
         const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        'Total Argentina: ${allTotals['tiles']} tiles (~${(allTotals['sizeMB'] as double).toStringAsFixed(0)} MB)',
+                        style: TextStyle(fontSize: 12, color: Theme.of(context).textTheme.bodySmall?.color?.withAlpha((0.7 * 255).round())),
+                      ),
+                    ),
+                    IconButton(
+                      icon: _loadingProvinceProgress ? const SizedBox(width:18,height:18,child:CircularProgressIndicator(strokeWidth:2)) : const Icon(Icons.refresh),
+                      tooltip: 'Actualizar estado de provincias',
+                      onPressed: _loadingProvinceProgress ? null : _refreshProvinceProgress,
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
                 Text(
           'Total Argentina: ${allTotals['tiles']} tiles (~${(allTotals['sizeMB'] as double).toStringAsFixed(0)} MB)',
           style: TextStyle(fontSize: 12, color: Theme.of(context).textTheme.bodySmall?.color?.withAlpha((0.7 * 255).round())),
@@ -215,13 +244,40 @@ class _ArgentinaDownloadScreenState extends State<ArgentinaDownloadScreen> {
 
   Widget _buildProvinceItem(ArgentinaProvince province) {
     final isSelected = _selectedProvinces.contains(province.code);
-    
+    final prog = _provinceProgress[province.code];
+    // Determinar etiqueta de estado
+    final String statusLabel;
+    final Color? statusColor;
+    if (prog == null) {
+      statusLabel = 'No calculado';
+      statusColor = null;
+    } else if (prog >= 0.95) {
+      statusLabel = 'Descargada';
+      statusColor = Colors.green;
+    } else if (prog > 0) {
+      statusLabel = '${(prog * 100).toStringAsFixed(0)}%';
+      statusColor = Colors.orange;
+    } else {
+      statusLabel = 'No descargada';
+      statusColor = null;
+    }
+
     return CheckboxListTile(
       title: Text(province.name),
       subtitle: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text('${province.estimatedTileCount.toString()} tiles • ${province.estimatedSizeMB.toStringAsFixed(1)} MB'),
+          if (prog != null)
+            Text('Descargado: ${ (prog * 100).toStringAsFixed(1) }%'),
+          const SizedBox(height: 6),
+          Row(children: [
+            Chip(
+              label: Text(statusLabel),
+              backgroundColor: statusColor == null ? null : statusColor.withOpacity(0.12),
+              labelStyle: TextStyle(color: statusColor ?? Theme.of(context).textTheme.bodySmall?.color),
+            ),
+          ]),
           Text(
             'Área: ${province.areaKm2.toStringAsFixed(0)} km²',
             style: TextStyle(fontSize: 12, color: Theme.of(context).textTheme.bodySmall?.color?.withAlpha((0.7 * 255).round())),
@@ -233,6 +289,28 @@ class _ArgentinaDownloadScreenState extends State<ArgentinaDownloadScreen> {
       dense: true,
       controlAffinity: ListTileControlAffinity.leading,
     );
+  }
+
+  // Refrescar el progreso por provincia (no bloqueante, carga en serie para no saturar)
+  Future<void> _refreshProvinceProgress() async {
+    setState(() { _loadingProvinceProgress = true; _provinceProgress.clear(); });
+    final provinces = ArgentinaRegions.provinces;
+    for (final p in provinces) {
+      final counts = _mapCacheService.getTileCountsForRegion(p.minLat, p.maxLat, p.minLng, p.maxLng, minZoom:9, maxZoom:12);
+      final total = counts['total'] as int;
+      if (total == 0) {
+        setState(() { _provinceProgress[p.code] = 0.0; });
+        continue;
+      }
+      final existing = await _mapCacheService.countExistingTilesForRegion(p.minLat, p.maxLat, p.minLng, p.maxLng, minZoom:9, maxZoom:12);
+      final exist = existing['existing'] as int;
+      setState(() {
+        _provinceProgress[p.code] = exist / total;
+      });
+      // Pequeña pausa para evitar saturar IO
+      await Future.delayed(const Duration(milliseconds: 50));
+    }
+    setState(() { _loadingProvinceProgress = false; });
   }
 
   Widget _buildActionButtons() {
@@ -377,6 +455,8 @@ class _ArgentinaDownloadScreenState extends State<ArgentinaDownloadScreen> {
   Future<void> _startDownload() async {
     if (_selectedProvinces.isEmpty) return;
 
+    if (kDebugMode) debugPrint('CICLE-UI: _startDownload invoked selected=${_selectedProvinces.length} force=$_forceRedownload');
+
     // Asegurar que el servicio de cache esté inicializado (DB, directorios)
     try {
       await _mapCacheService.initialize();
@@ -400,6 +480,8 @@ class _ArgentinaDownloadScreenState extends State<ArgentinaDownloadScreen> {
           .where((province) => _selectedProvinces.contains(province.code))
           .toList();
 
+    if (kDebugMode) debugPrint('CICLE-UI: selectedProvincesData length=${selectedProvincesData.length}');
+
       // Calcular total real usando el servicio de cache para obtener conteos por zoom
       // (usamos los mismos zooms que usará la descarga: 8..15)
       final boundsMinLat = selectedProvincesData.map((p) => p.minLat).reduce((a, b) => a < b ? a : b);
@@ -412,32 +494,37 @@ class _ArgentinaDownloadScreenState extends State<ArgentinaDownloadScreen> {
         boundsMaxLat,
         boundsMinLng,
         boundsMaxLng,
-        minZoom: 9,
-        maxZoom: 12,
+        minZoom: 10,
+  maxZoom: 14,
       );
+
+  if (kDebugMode) debugPrint('CICLE-UI: estimatedTiles for selection=${counts['total']}');
 
       final estimatedTiles = counts['total'] as int;
       // Contador asíncrono para saber cuántos tiles ya existen en caché
-      final existingResult = await _mapCacheService.countExistingTilesForRegion(
+      // Lanzar conteo de existing en background para no bloquear la UI
+      Future<int> existingCountFuture = _mapCacheService.countExistingTilesForRegion(
         boundsMinLat,
         boundsMaxLat,
         boundsMinLng,
         boundsMaxLng,
-        minZoom: 9,
-        maxZoom: 12,
-      );
+        minZoom: 10,
+  maxZoom: 14,
+      ).then((m) => m['existing'] as int).catchError((e) {
+        if (kDebugMode) debugPrint('Error contando tiles existentes: $e');
+        return 0;
+      });
 
-      final existingTiles = existingResult['existing'] as int;
-      final missingTiles = estimatedTiles - existingTiles;
-
-      const int largeThreshold = 10000; // umbral para advertir
+  const int largeThreshold = 10000; // umbral para advertir
       bool dialogForceDownload = false;
       if (estimatedTiles > largeThreshold) {
-        // Mostrar diálogo con conteos y una opción para descargar solo faltantes
+        if (kDebugMode) debugPrint('CICLE-UI: large download dialog triggered estimated=$estimatedTiles');
+        // Mostrar diálogo inmediatamente y actualizarlo cuando termine el conteo (no bloqueante)
         final bool? downloadOnlyMissing = await showDialog<bool>(
           context: context,
           builder: (context) => StatefulBuilder(builder: (context, setStateDialog) {
             bool _downloadOnlyMissingLocal = true;
+
             return AlertDialog(
               title: const Text('Descarga muy grande'),
               content: Column(
@@ -445,8 +532,26 @@ class _ArgentinaDownloadScreenState extends State<ArgentinaDownloadScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text('Total tiles en la selección: $estimatedTiles'),
-                  Text('Ya en caché: $existingTiles'),
-                  Text('Faltantes a descargar: $missingTiles'),
+                  const SizedBox(height: 6),
+                  // Usar FutureBuilder para evitar llamar setState sobre un StatefulBuilder ya disposado
+                  FutureBuilder<int>(
+                    future: existingCountFuture,
+                    builder: (context, snapshot) {
+                      if (snapshot.connectionState == ConnectionState.waiting) {
+                        return Row(children: [const SizedBox(width:18,height:18,child:CircularProgressIndicator(strokeWidth:2)), const SizedBox(width:8), const Text('Calculando cuántos ya están en caché...')]);
+                      }
+
+                      final int displayedExisting = snapshot.hasData ? snapshot.data! : 0;
+                      final int displayedMissing = estimatedTiles - displayedExisting;
+                      return Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('Ya en caché: $displayedExisting'),
+                          Text('Faltantes a descargar: $displayedMissing'),
+                        ],
+                      );
+                    },
+                  ),
                   const SizedBox(height: 12),
                   Row(
                     children: [
@@ -494,7 +599,7 @@ class _ArgentinaDownloadScreenState extends State<ArgentinaDownloadScreen> {
         if (!_isDownloading) {
           break;
         }
-        debugPrint('Starting download for province: ${province.name} (${province.code})');
+        debugPrint('CICLE-UI: Starting download for province: ${province.name} (${province.code})');
         setState(() {
           _currentProvince = province.name;
           _downloadProgress = completedProvinces / totalProvinces;
@@ -510,14 +615,17 @@ class _ArgentinaDownloadScreenState extends State<ArgentinaDownloadScreen> {
 
           try {
           // Verificar si la provincia ya está completa
+          // Usar el mismo rango de zoom que usaremos para descargar (10..14)
           final isComplete = await _mapCacheService.isRegionComplete(
             province.minLat,
             province.maxLat,
             province.minLng,
             province.maxLng,
-            minZoom: 9,
-            maxZoom: 12,
+            minZoom: 10,
+            maxZoom: 14,
           );
+
+          if (kDebugMode) debugPrint('CICLE-UI: isRegionComplete(${province.name}) => $isComplete');
 
           if (isComplete && !forceForAll) {
             if (kDebugMode) debugPrint('${province.name} ya está descargada completamente');
@@ -530,20 +638,45 @@ class _ArgentinaDownloadScreenState extends State<ArgentinaDownloadScreen> {
                 ),
               );
             }
+            // Actualizar progreso visual inmediatamente para no quedar en 0
+            if (mounted) {
+              setState(() {
+                _currentProvinceTilesDownloaded = 1;
+                _currentProvinceTilesTotal = 1;
+                final provinceProgress = 1.0;
+                _downloadProgress = (completedProvinces + provinceProgress) / totalProvinces;
+              });
+            }
           } else {
             if (isComplete && _forceRedownload) {
               if (kDebugMode) debugPrint('Re-descargando ${province.name} por solicitud del usuario');
             }
-            // Descargar tiles para esta provincia
+            // Crear/obtener un MapArea persistente para esta provincia y usar su id
+            if (kDebugMode) debugPrint('CICLE-UI: creating MapArea for ${province.name}');
+            final area = await _mapCacheService.createArea(
+              name: province.name,
+              northEast: LatLng(province.maxLat, province.maxLng),
+              southWest: LatLng(province.minLat, province.minLng),
+              minZoom: 10,
+              maxZoom: 14,
+            );
+
+            if (kDebugMode) debugPrint('CICLE-UI: created area id=${area.id} for ${province.name}');
+
+            // Descargar tiles para esta provincia usando el areaId persistente
+            if (kDebugMode) debugPrint('CICLE-UI: calling downloadRegion for ${province.name} areaId=${area.id}');
             await _mapCacheService.downloadRegion(
               province.minLat,
               province.maxLat,
               province.minLng,
               province.maxLng,
-              minZoom: 9,
-              maxZoom: 12,
+              areaId: area.id,
+              minZoom: 10,
+              maxZoom: 14,
               forceDownload: forceForAll,
               onProgress: (processed, total, newDownloaded) {
+                  // Debug: registrar progreso en logs para verificar llamadas
+                  debugPrint('CICLE-PROV: province ${province.name} onProgress processed=$processed total=$total new=$newDownloaded');
                   if (mounted) {
                     setState(() {
                       _currentProvinceTilesDownloaded = processed;
@@ -555,6 +688,8 @@ class _ArgentinaDownloadScreenState extends State<ArgentinaDownloadScreen> {
                 },
             );
           }
+            // Tras una descarga exitosa de la provincia, limitar la sesión a maxZoom=14
+            MapCacheService().setSessionMaxZoom(14);
           
           completedProvinces++;
           if (kDebugMode) debugPrint('Completed province: ${province.name}');
