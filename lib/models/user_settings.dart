@@ -3,14 +3,12 @@ class UserSettings {
   final String distanceUnit; // 'km' o 'miles'
   final String speedUnit; // 'kmh' o 'mph'
   final bool enableVoiceAlerts;
-  final int gpsUpdateInterval; // en segundos
 
   UserSettings({
     this.weightKg = 70.0, // Peso por defecto
     this.distanceUnit = 'km',
     this.speedUnit = 'kmh',
-    this.enableVoiceAlerts = true,
-    this.gpsUpdateInterval = 3, // Actualizar cada 3 segundos
+  this.enableVoiceAlerts = true,
   });
 
   // Convertir a Map para SharedPreferences
@@ -19,8 +17,7 @@ class UserSettings {
       'weightKg': weightKg,
       'distanceUnit': distanceUnit,
       'speedUnit': speedUnit,
-      'enableVoiceAlerts': enableVoiceAlerts,
-      'gpsUpdateInterval': gpsUpdateInterval,
+  'enableVoiceAlerts': enableVoiceAlerts,
     };
   }
 
@@ -30,8 +27,7 @@ class UserSettings {
       weightKg: map['weightKg']?.toDouble() ?? 70.0,
       distanceUnit: map['distanceUnit'] ?? 'km',
       speedUnit: map['speedUnit'] ?? 'kmh',
-      enableVoiceAlerts: map['enableVoiceAlerts'] ?? true,
-      gpsUpdateInterval: map['gpsUpdateInterval'] ?? 3,
+  enableVoiceAlerts: map['enableVoiceAlerts'] ?? true,
     );
   }
 
@@ -41,14 +37,13 @@ class UserSettings {
     String? distanceUnit,
     String? speedUnit,
     bool? enableVoiceAlerts,
-    int? gpsUpdateInterval,
+  // Note: gpsUpdateInterval removed — keep signature compatible by ignoring it if present
   }) {
     return UserSettings(
       weightKg: weightKg ?? this.weightKg,
       distanceUnit: distanceUnit ?? this.distanceUnit,
       speedUnit: speedUnit ?? this.speedUnit,
-      enableVoiceAlerts: enableVoiceAlerts ?? this.enableVoiceAlerts,
-      gpsUpdateInterval: gpsUpdateInterval ?? this.gpsUpdateInterval,
+  enableVoiceAlerts: enableVoiceAlerts ?? this.enableVoiceAlerts,
     );
   }
 
