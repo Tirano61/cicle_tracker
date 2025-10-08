@@ -76,18 +76,19 @@ class CalorieCalculator {
     required List<double> recentSpeeds,
     double? currentSpeedKmh,
   }) {
-    if (elapsedTime.inSeconds == 0) return 0.0;
+    if (elapsedTime.inSeconds <= 0) return 0.0;
 
-    final timeHours = elapsedTime.inMinutes / 60.0;
+    // Usar segundos para mayor precisión al convertir a horas
+    final timeHours = elapsedTime.inSeconds / 3600.0;
     
     // Método 1: Calcular basado en velocidad promedio de distancia/tiempo
     double avgSpeedFromDistance = 0.0;
-    if (totalDistanceKm > 0) {
+    if (totalDistanceKm > 0 && timeHours > 0) {
       avgSpeedFromDistance = totalDistanceKm / timeHours;
     }
 
     // Método 2: Velocidad promedio móvil de las últimas lecturas GPS
-    double avgSpeedFromGPS = 0.0;
+  double avgSpeedFromGPS = 0.0;
     if (recentSpeeds.isNotEmpty) {
       // Usar solo las últimas 10 velocidades para evitar datos antiguos
       final relevantSpeeds = recentSpeeds.length > 10 
@@ -95,9 +96,9 @@ class CalorieCalculator {
           : recentSpeeds;
       
       // Filtrar velocidades extremas (menores a 1 km/h o mayores a 60 km/h)
-      final filteredSpeeds = relevantSpeeds
-          .where((speed) => speed >= 1.0 && speed <= 60.0)
-          .toList();
+    final filteredSpeeds = relevantSpeeds
+      .where((speed) => speed >= 0.5 && speed <= 80.0)
+      .toList();
       
       if (filteredSpeeds.isNotEmpty) {
         avgSpeedFromGPS = filteredSpeeds.reduce((a, b) => a + b) / filteredSpeeds.length;
@@ -106,7 +107,7 @@ class CalorieCalculator {
 
     // Método 3: Velocidad actual del GPS si está disponible
     double currentGPSSpeed = currentSpeedKmh ?? 0.0;
-    if (currentGPSSpeed < 1.0 || currentGPSSpeed > 60.0) {
+    if (currentGPSSpeed < 0.5 || currentGPSSpeed > 80.0) {
       currentGPSSpeed = 0.0; // Ignorar si no es realista
     }
 
@@ -120,7 +121,7 @@ class CalorieCalculator {
     );
 
     // Si no hay datos confiables, usar estimación conservadora
-    if (bestSpeed < 1.0) {
+    if (bestSpeed < 0.5) {
       bestSpeed = _getConservativeSpeedEstimate(totalDistanceKm, timeHours);
     }
 

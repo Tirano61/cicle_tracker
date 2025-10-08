@@ -63,12 +63,6 @@ class PreferencesService {
     return await saveUserSettings(updatedSettings);
   }
 
-  Future<bool> updateGpsInterval(int intervalSeconds) async {
-    final settings = await loadUserSettings();
-    final updatedSettings = settings.copyWith(gpsUpdateInterval: intervalSeconds);
-    return await saveUserSettings(updatedSettings);
-  }
-
   // Métodos para tipo de mapa
   static const String _mapProviderKey = 'selected_map_provider';
 

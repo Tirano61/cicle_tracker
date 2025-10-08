@@ -173,6 +173,8 @@ class _TrackingScreenState extends State<TrackingScreen> {
   _showSnackBar('Tracking detenido', Theme.of(context).colorScheme.error);
   }
 
+  
+
   void _updateCalories() {
     if (!_trackingData.isTracking || _trackingData.isPaused) return;
 
@@ -499,6 +501,7 @@ class _TrackingScreenState extends State<TrackingScreen> {
           ),
         ],
       ),
+      
     );
   }
 }

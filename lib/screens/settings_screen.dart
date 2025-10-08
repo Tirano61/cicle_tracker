@@ -113,8 +113,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   
                   const SizedBox(height: 24),
                   
-                  // Configuración de GPS
-                  _buildGpsSection(),
+          // Configuración de GPS (modo siempre en tiempo real)
+            // Eliminado control de intervalo — el GPS se usa en tiempo real por defecto
                   
                   const SizedBox(height: 24),
                   
@@ -244,48 +244,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  Widget _buildGpsSection() {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Configuración GPS',
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            const SizedBox(height: 16),
-            ListTile(
-              leading: const Icon(Icons.gps_fixed),
-              title: const Text('Intervalo de Actualización GPS'),
-              subtitle: Text('Cada ${_settings.gpsUpdateInterval} segundos'),
-              trailing: DropdownButton<int>(
-                value: _settings.gpsUpdateInterval,
-                items: const [
-                  DropdownMenuItem(value: 1, child: Text('1 seg')),
-                  DropdownMenuItem(value: 2, child: Text('2 seg')),
-                  DropdownMenuItem(value: 3, child: Text('3 seg')),
-                  DropdownMenuItem(value: 5, child: Text('5 seg')),
-                  DropdownMenuItem(value: 10, child: Text('10 seg')),
-                ],
-                onChanged: (value) {
-                  if (value != null) {
-                    setState(() {
-                      _settings = _settings.copyWith(gpsUpdateInterval: value);
-                    });
-                  }
-                },
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
+  // ...existing code...
 
   Widget _buildNotificationsSection() {
     return Card(
