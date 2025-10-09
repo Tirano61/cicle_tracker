@@ -33,21 +33,44 @@ class _TrackingScreenState extends State<TrackingScreen> {
   final PreferencesService _preferencesService = PreferencesService();
   final CalorieCalculator _calorieCalculator = CalorieCalculator();
   final MapController _mapController = MapController();
+  final Distance _distanceUtil = const Distance();
+  final ValueNotifier<LatLng?> _markerNotifier = ValueNotifier<LatLng?>(null);
+  // Notifier to hold full polyline points so the map layer can update
+  // without rebuilding the whole widget tree on every incoming point.
+  final ValueNotifier<List<LatLng>> _polylineNotifier = ValueNotifier<List<LatLng>>(<LatLng>[]);
+  // Lightweight realtime polyline showing the most recent points (updated on every fix)
+  final ValueNotifier<List<LatLng>> _realtimePolylineNotifier = ValueNotifier<List<LatLng>>(<LatLng>[]);
+  DateTime _lastPolylineUpdate = DateTime.fromMillisecondsSinceEpoch(0);
   int? _sessionMaxZoom;
   StreamSubscription<int?>? _sessionZoomSub;
   bool _userInteracted = false; // true cuando el usuario ha hecho pan/zoom manual
   double _mapRotation = 0.0; // grados
   DateTime? _lastZoomWarning;
   final Duration _zoomWarnInterval = const Duration(seconds: 3);
+  // Map recenter control to avoid visual jumps
+  DateTime _lastMapMove = DateTime.fromMillisecondsSinceEpoch(0);
+  LatLng? _lastMapCenter;
+  final double _mapMoveMinMeters = 15.0;
 
   StreamSubscription<LiveTrackingData>? _trackingSubscription;
   
   LiveTrackingData _trackingData = LiveTrackingData();
   UserSettings _userSettings = UserSettings();
+  // Animated marker state to smooth visual jumps
+  LatLng? _markerAnimatedPos;
+  Timer? _markerAnimationTimer;
+  Duration _markerAnimationDuration = const Duration(milliseconds: 300);
+  // Debug flag: when false, the map will not automatically recenter.
+  // This is useful to determine whether camera movements are the cause
+  // of perceived jumps at corners. Set to true to restore original behavior.
+  final bool _enableAutoRecenter = false;
+  LatLng? _markerAnimationFrom;
+  LatLng? _markerAnimationTo;
   MapTileProvider _currentMapProvider = MapTileProvider.openStreetMap;
   bool _isMapReady = false;
   Timer? _calorieTimer;
   Timer? _recalculateTimer;
+  double _lastCaloriesDistanceKm = 0.0;
 
   @override
   void initState() {
@@ -63,12 +86,58 @@ class _TrackingScreenState extends State<TrackingScreen> {
     });
   }
 
+  void _animateMarkerTo(LatLng target) {
+    // Cancel previous
+    _markerAnimationTimer?.cancel();
+
+    final from = _markerAnimatedPos ?? _trackingData.currentLocation;
+    if (from == null) {
+      // Direct set
+      _markerAnimatedPos = target;
+      _markerNotifier.value = target;
+      try {
+        // ignore: avoid_print
+        print('[MarkerUpdate] ${target.latitude.toStringAsFixed(6)},${target.longitude.toStringAsFixed(6)}');
+      } catch (_) {}
+      return;
+    }
+
+    _markerAnimationFrom = from;
+    _markerAnimationTo = target;
+    final start = DateTime.now();
+    final durationMs = _markerAnimationDuration.inMilliseconds;
+
+    _markerAnimationTimer = Timer.periodic(const Duration(milliseconds: 16), (timer) {
+      final elapsed = DateTime.now().difference(start).inMilliseconds;
+      final t = (elapsed / durationMs).clamp(0.0, 1.0);
+      final lat = _lerpDouble(_markerAnimationFrom!.latitude, _markerAnimationTo!.latitude, t);
+      final lon = _lerpDouble(_markerAnimationFrom!.longitude, _markerAnimationTo!.longitude, t);
+      final pos = LatLng(lat, lon);
+      _markerAnimatedPos = pos;
+      _markerNotifier.value = pos;
+      try {
+        // ignore: avoid_print
+        print('[MarkerUpdate] ${lat.toStringAsFixed(6)},${lon.toStringAsFixed(6)}');
+      } catch (_) {}
+      if (t >= 1.0) {
+        timer.cancel();
+        _markerAnimationTimer = null;
+      }
+    });
+  }
+
+  double _lerpDouble(double a, double b, double t) => a + (b - a) * t;
+
   @override
   void dispose() {
     _trackingSubscription?.cancel();
     _calorieTimer?.cancel();
     _recalculateTimer?.cancel();
     _locationService.dispose();
+    _markerAnimationTimer?.cancel();
+    _markerNotifier.dispose();
+    _polylineNotifier.dispose();
+    _realtimePolylineNotifier.dispose();
     _sessionZoomSub?.cancel();
     super.dispose();
   }
@@ -92,13 +161,64 @@ class _TrackingScreenState extends State<TrackingScreen> {
 
   void _listenToTracking() {
     _trackingSubscription = _locationService.trackingStream.listen((data) {
+      // Merge incoming state with locally tracked calories to avoid
+      // that the LocationService (which doesn't compute calories)
+      // overwrite the UI-calculated calories (was causing 0.0 siempre).
+      final double preservedCalories = (_trackingData.caloriesBurned > data.caloriesBurned)
+          ? _trackingData.caloriesBurned
+          : data.caloriesBurned;
+      final merged = data.copyWith(caloriesBurned: preservedCalories);
+
+      // DEBUG: mostrar el valor de calorías que aplicaremos
+      try {
+        // ignore: avoid_print
+        print('[TrackingStream] incomingCalories=${data.caloriesBurned} preserved=$preservedCalories merged=${merged.caloriesBurned}');
+      } catch (_) {}
+
+      // Update lightweight marker notifier every update (fast)
+      if (merged.currentLocation != null) {
+        _animateMarkerTo(merged.currentLocation!);
+      }
+
+      // Throttle polyline redraws: update points only every N points or every second
+      final now = DateTime.now();
+      // Realtime polyline: append the latest point (keep last 60 points to avoid unbounded memory)
+      if (merged.currentLocation != null) {
+        final current = List<LatLng>.from(_realtimePolylineNotifier.value);
+        current.add(merged.currentLocation!);
+        if (current.length > 60) current.removeRange(0, current.length - 60);
+        _realtimePolylineNotifier.value = current;
+      }
+
+      final shouldUpdatePolyline = (merged.routePoints.length - _polylineNotifier.value.length) >= 1 || now.difference(_lastPolylineUpdate) > const Duration(milliseconds: 250);
+      if (shouldUpdatePolyline) {
+        final copy = List<LatLng>.from(merged.routePoints);
+        _polylineNotifier.value = copy;
+        _lastPolylineUpdate = now;
+        try {
+          // ignore: avoid_print
+          print('[PolylineUpdate] points=${copy.length}');
+        } catch (_) {}
+      }
+
       setState(() {
-        _trackingData = data;
+        // Keep tracking data for metrics; polyline rendering reads _polylinePointsForMap
+        _trackingData = merged;
       });
 
       // Mover mapa a ubicación actual si está trackeando (solo si el usuario no intervino)
-      if (data.isTracking && data.currentLocation != null && _isMapReady && !_userInteracted) {
-        _mapController.move(data.currentLocation!, 16.0);
+      // This behavior is gated by _enableAutoRecenter for debugging purposes.
+      if (_enableAutoRecenter && data.isTracking && data.currentLocation != null && _isMapReady && !_userInteracted) {
+        final now = DateTime.now();
+        final meters = (_lastMapCenter == null)
+            ? double.infinity
+            : _distanceUtil.as(LengthUnit.Meter, _lastMapCenter!, data.currentLocation!);
+        // Solo mover si pasó suficiente tiempo y la distancia es significativa
+        if (now.difference(_lastMapMove) > const Duration(milliseconds: 800) && meters >= _mapMoveMinMeters) {
+          _mapController.move(data.currentLocation!, 16.0);
+          _lastMapMove = now;
+          _lastMapCenter = data.currentLocation!;
+        }
       }
     });
   }
@@ -117,6 +237,8 @@ class _TrackingScreenState extends State<TrackingScreen> {
         _updateCalories();
       }
     });
+    // Inicializar marcador de distancia para el cálculo de calorías
+    _lastCaloriesDistanceKm = _trackingData.distanceKm;
 
     // Iniciar timer para recálculo periódico de precisión (cada minuto)
     _recalculateTimer = Timer.periodic(const Duration(minutes: 1), (timer) {
@@ -145,6 +267,8 @@ class _TrackingScreenState extends State<TrackingScreen> {
         _updateCalories();
       }
     });
+    // Alinear referencia de distancia para evitar doble conteo tras pausa
+    _lastCaloriesDistanceKm = _trackingData.distanceKm;
 
     // Reiniciar timer de recálculo
     _recalculateTimer = Timer.periodic(const Duration(minutes: 1), (timer) {
@@ -178,17 +302,38 @@ class _TrackingScreenState extends State<TrackingScreen> {
   void _updateCalories() {
     if (!_trackingData.isTracking || _trackingData.isPaused) return;
 
-    // Usar el método mejorado que funciona mejor con datos limitados del GPS
-    final intervalCalories = _calorieCalculator.estimateCaloriesForInterval(
+    // Intentar cálculo por velocidad/tiempo
+    final intervalCaloriesBySpeed = _calorieCalculator.estimateCaloriesForInterval(
       weightKg: _userSettings.weightKg,
       recentSpeeds: _trackingData.speeds,
       intervalSeconds: 5, // Actualización cada 5 segundos
-      currentSpeedKmh: _trackingData.currentSpeedKmh > 1.0 
-          ? _trackingData.currentSpeedKmh 
-          : null,
+      currentSpeedKmh: _trackingData.currentSpeedKmh > 0.5 ? _trackingData.currentSpeedKmh : null,
     );
 
+    double intervalCalories = intervalCaloriesBySpeed;
+
+    // Si no devolvió nada útil, usar fallback por distancia recorrida en el intervalo
+    final distanceDeltaKm = (_trackingData.distanceKm - _lastCaloriesDistanceKm).clamp(0.0, double.infinity);
+    double fallbackCalories = 0.0;
+    if ((intervalCaloriesBySpeed <= 0.0) && distanceDeltaKm > 0.0) {
+      final caloriesPerKm = _calorieCalculator.getCaloriesPerKm(_userSettings.weightKg);
+      fallbackCalories = caloriesPerKm * distanceDeltaKm;
+      intervalCalories = fallbackCalories;
+    }
+
+    // DEBUG: imprimir diagnóstico de cálculo de calorías
+    // Solo print para debugging; será controlado por un flag dedicado más adelante.
+    try {
+      // Evitar usar print en release si es eliminado por lint; este es temporal para pruebas.
+      // Muestra: distanceDeltaKm, intervalCaloriesBySpeed, fallbackCalories, intervalCalories
+      // ignore: avoid_print
+      print('[CaloriesDebug] distanceDeltaKm=$distanceDeltaKm intervalBySpeed=$intervalCaloriesBySpeed fallback=$fallbackCalories finalInterval=$intervalCalories totalBefore=${_trackingData.caloriesBurned}');
+    } catch (_) {}
+
     final newCalories = _trackingData.caloriesBurned + intervalCalories;
+
+    // Actualizar último marcador de distancia
+    _lastCaloriesDistanceKm = _trackingData.distanceKm;
 
     setState(() {
       _trackingData = _trackingData.copyWith(caloriesBurned: newCalories);
@@ -396,37 +541,64 @@ class _TrackingScreenState extends State<TrackingScreen> {
                       tileProvider: _currentMapProvider,
                       userAgentPackageName: 'com.example.cicle_app',
                     ),
-                // Ruta recorrida
-                if (_trackingData.routePoints.isNotEmpty)
-                  PolylineLayer(
-                    polylines: [
-                      Polyline(
-                        points: _trackingData.routePoints,
-                        strokeWidth: 4.0,
-                        color: Theme.of(context).colorScheme.primary,
-                      ),
-                    ],
-                  ),
-                // Marcador de ubicación actual
-                if (_trackingData.currentLocation != null)
-                  MarkerLayer(
-                    markers: [
-                      Marker(
-                        point: _trackingData.currentLocation!,
-                        width: 20,
-                        height: 20,
-                        child: Container(
-                          decoration: BoxDecoration(
-                            color: _trackingData.isTracking 
-                    ? (_trackingData.isPaused ? Colors.orange : Theme.of(context).colorScheme.primary)
-                                : Colors.grey,
-                            shape: BoxShape.circle,
-                            border: Border.all(color: Theme.of(context).colorScheme.onPrimary, width: 2),
+                // Ruta recorrida (actualizada vía ValueNotifier para evitar rebuilds pesados)
+                ValueListenableBuilder<List<LatLng>>(
+                  valueListenable: _polylineNotifier,
+                  builder: (context, points, child) {
+                    if (points.isEmpty) return const SizedBox.shrink();
+                    return PolylineLayer(
+                      polylines: [
+                        Polyline(
+                          points: points,
+                          strokeWidth: 4.0,
+                          color: Theme.of(context).colorScheme.primary,
+                        ),
+                      ],
+                    );
+                  },
+                ),
+                // Realtime trailing polyline (shows recent movement smoothly)
+                ValueListenableBuilder<List<LatLng>>(
+                  valueListenable: _realtimePolylineNotifier,
+                  builder: (context, points, child) {
+                    if (points.isEmpty) return const SizedBox.shrink();
+                    return PolylineLayer(
+                      polylines: [
+                        Polyline(
+                          points: points,
+                          strokeWidth: 2.0,
+                          color: Theme.of(context).colorScheme.primary.withAlpha((0.7 * 255).round()),
+                        ),
+                      ],
+                    );
+                  },
+                ),
+
+                // Marcador de ubicación actual (fast updates using ValueNotifier)
+                ValueListenableBuilder<LatLng?>(
+                  valueListenable: _markerNotifier,
+                  builder: (context, markerPos, child) {
+                    if (markerPos == null) return const SizedBox.shrink();
+                    return MarkerLayer(
+                      markers: [
+                        Marker(
+                          point: markerPos,
+                          width: 20,
+                          height: 20,
+                          child: Container(
+                            decoration: BoxDecoration(
+                              color: _trackingData.isTracking 
+                        ? (_trackingData.isPaused ? Colors.orange : Theme.of(context).colorScheme.primary)
+                                    : Colors.grey,
+                              shape: BoxShape.circle,
+                              border: Border.all(color: Theme.of(context).colorScheme.onPrimary, width: 2),
+                            ),
                           ),
                         ),
-                      ),
-                    ],
-                  ),
+                      ],
+                    );
+                  },
+                ),
                   ],
                 ),
 
