@@ -233,8 +233,9 @@ class CalorieCalculator {
     
     if (estimatedSpeed < 1.0 && recentSpeeds.isNotEmpty) {
       // Usar promedio de las últimas 5 velocidades válidas
+      // Reducimos el umbral inferior para aceptar lecturas GPS bajas (ej. emulador/jitter)
       final validSpeeds = recentSpeeds
-          .where((speed) => speed >= 1.0 && speed <= 60.0)
+          .where((speed) => speed >= 0.1 && speed <= 80.0)
           .toList();
       
       if (validSpeeds.isNotEmpty) {
@@ -245,9 +246,9 @@ class CalorieCalculator {
       }
     }
 
-    // Si aún no hay velocidad válida, usar mínima
+    // Si aún no hay velocidad válida, usar mínima conservadora pero baja
     if (estimatedSpeed < 1.0) {
-      estimatedSpeed = 10.0; // 10 km/h como mínimo conservador
+      estimatedSpeed = 3.0; // 3 km/h como mínimo conservador para evitar 0
     }
 
     // Calcular calorías para el intervalo

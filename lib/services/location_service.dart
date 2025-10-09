@@ -1,82 +1,94 @@
 import 'dart:async';
-import 'dart:math';
+
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
+
 import '../models/live_tracking_data.dart';
 
+/// Clean, single-definition LocationService.
 class LocationService {
-  static final LocationService _instance = LocationService._internal();
+  LocationService._privateConstructor();
+  static final LocationService _instance = LocationService._privateConstructor();
   factory LocationService() => _instance;
-  LocationService._internal();
 
-  StreamSubscription<Position>? _positionStream;
-  Timer? _trackingTimer;
+  StreamSubscription<Position>? _positionSub;
+  Timer? _timer;
+  final StreamController<LiveTrackingData> _controller = StreamController<LiveTrackingData>.broadcast();
 
-  // Stream controller para notificar cambios
-  final StreamController<LiveTrackingData> _trackingController =
-      StreamController<LiveTrackingData>.broadcast();
+  LiveTrackingData _state = LiveTrackingData();
+  final Distance _distance = const Distance();
 
-  Stream<LiveTrackingData> get trackingStream => _trackingController.stream;
-
-  LiveTrackingData _currentData = LiveTrackingData();
-
-  // Settings para modo 'tiempo real' (actualizaciones frecuentes)
-  final LocationSettings _realTimeLocationSettings = const LocationSettings(
+  final LocationSettings _locationSettings = const LocationSettings(
     accuracy: LocationAccuracy.best,
     distanceFilter: 0,
   );
 
-  // Filtro de suavizado (low-pass) para reducir jitter
-  LatLng? _lastFilteredLocation;
-  final double _smoothingFactor = 0.20;
-  final double _maxPlausibleSpeedKmh = 60.0; // km/h
-  final double _minDistanceKmToAdd = 0.003; // ~3 m
-  final double _maxAllowedAccuracyMeters = 30.0;
+  // Tunable thresholds
+  // Reduce threshold to capture more points on emulators/devices with sparse updates
+  double _minMetersToAdd = 0.2; // 0.2 meter
+  Timer? _pollTimer; // periodic polling to increase sample density
+  // Debug flag to enable prints during testing (toggle for emulator tests)
+  bool debugMode = true;
+  // When debugMode is true we'll lower thresholds and poll faster
 
-  LiveTrackingData get currentData => _currentData;
+  Stream<LiveTrackingData> get trackingStream => _controller.stream;
+  LiveTrackingData get currentData => _state;
 
-  // Verificar y solicitar permisos de ubicación
   Future<bool> checkAndRequestPermissions() async {
-    bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
-    if (!serviceEnabled) return false;
-
-    LocationPermission permission = await Geolocator.checkPermission();
+    if (!await Geolocator.isLocationServiceEnabled()) return false;
+    var permission = await Geolocator.checkPermission();
     if (permission == LocationPermission.denied) {
       permission = await Geolocator.requestPermission();
       if (permission == LocationPermission.denied) return false;
     }
-
     if (permission == LocationPermission.deniedForever) return false;
-
     return true;
   }
 
   Future<bool> startTracking() async {
-    if (_currentData.isTracking) return true;
-
-    final hasPermission = await checkAndRequestPermissions();
-    if (!hasPermission) return false;
+    if (_state.isTracking) return true;
+    final ok = await checkAndRequestPermissions();
+    if (!ok) return false;
 
     try {
-      final position = await Geolocator.getCurrentPosition();
-      _lastFilteredLocation = LatLng(position.latitude, position.longitude);
-
-      _currentData = _currentData.copyWith(
+      final pos = await Geolocator.getCurrentPosition();
+      final initial = LatLng(pos.latitude, pos.longitude);
+      if (debugMode) {
+        // ignore: avoid_print
+        print('[LocationService] startTracking initial=${initial.latitude.toStringAsFixed(6)},${initial.longitude.toStringAsFixed(6)}');
+      }
+      _state = _state.copyWith(
         isTracking: true,
         isPaused: false,
         startTime: DateTime.now(),
         lastUpdateTime: DateTime.now(),
-        currentLocation: LatLng(position.latitude, position.longitude),
-        routePoints: [LatLng(position.latitude, position.longitude)],
+        currentLocation: initial,
+        routePoints: [initial],
+        distanceKm: 0.0,
       );
 
-      _positionStream = Geolocator.getPositionStream(
-        locationSettings: _realTimeLocationSettings,
-      ).listen(_onLocationUpdate);
+      _controller.add(_state);
 
-      _trackingTimer = Timer.periodic(const Duration(seconds: 1), _onTimerUpdate);
+  _positionSub = Geolocator.getPositionStream(locationSettings: _locationSettings).listen(_onPosition, onError: (e) {});
+      _timer = Timer.periodic(const Duration(seconds: 1), (_) => _tick());
 
-      _trackingController.add(_currentData);
+      // Adjust thresholds for debug mode to increase sample density
+      final pollMs = debugMode ? 700 : 1000;
+      if (debugMode) {
+        _minMetersToAdd = 0.0; // accept even tiny movements in debug
+      }
+
+      // Start a short-polling loop to get more frequent positions (improves emulator & sparse streams)
+      // We call getCurrentPosition every pollMs and feed it into the same handler.
+      _pollTimer = Timer.periodic(Duration(milliseconds: pollMs), (_) async {
+        try {
+          final p2 = await Geolocator.getCurrentPosition();
+          _onPosition(p2);
+        } catch (_) {
+          // ignore polling errors
+        }
+      });
+
       return true;
     } catch (e) {
       return false;
@@ -84,143 +96,117 @@ class LocationService {
   }
 
   void pauseTracking() {
-    if (!_currentData.isTracking || _currentData.isPaused) return;
-    _currentData = _currentData.copyWith(isPaused: true, pauseStartTime: DateTime.now());
-    _trackingController.add(_currentData);
+    if (!_state.isTracking || _state.isPaused) return;
+    _state = _state.copyWith(isPaused: true, pauseStartTime: DateTime.now());
+    _controller.add(_state);
   }
 
   void resumeTracking() {
-    if (!_currentData.isTracking || !_currentData.isPaused) return;
-    Duration additionalPausedTime = Duration.zero;
-    if (_currentData.pauseStartTime != null) {
-      additionalPausedTime = DateTime.now().difference(_currentData.pauseStartTime!);
+    if (!_state.isTracking || !_state.isPaused) return;
+    var additional = Duration.zero;
+    if (_state.pauseStartTime != null) {
+      additional = DateTime.now().difference(_state.pauseStartTime!);
     }
-    _currentData = _currentData.copyWith(
+    _state = _state.copyWith(
       isPaused: false,
       pauseStartTime: null,
-      totalPausedTime: _currentData.totalPausedTime + additionalPausedTime,
+      totalPausedTime: _state.totalPausedTime + additional,
     );
-    _trackingController.add(_currentData);
+    _controller.add(_state);
   }
 
   void stopTracking() {
-    _positionStream?.cancel();
-    _trackingTimer?.cancel();
-    _currentData = _currentData.copyWith(isTracking: false, isPaused: false);
-    _trackingController.add(_currentData);
+    _positionSub?.cancel();
+    _positionSub = null;
+    _timer?.cancel();
+    _timer = null;
+    _pollTimer?.cancel();
+    _pollTimer = null;
+    if (debugMode) {
+      // ignore: avoid_print
+      print('[LocationService] stopTracking');
+    }
+    _state = _state.copyWith(isTracking: false, isPaused: false);
+    _controller.add(_state);
   }
 
   void resetTracking() {
     stopTracking();
-    _currentData = LiveTrackingData();
-    _trackingController.add(_currentData);
-  }
-
-  void _onLocationUpdate(Position position) {
-    if (_currentData.isPaused || !_currentData.isTracking) return;
-    final rawLocation = LatLng(position.latitude, position.longitude);
-    final currentTime = DateTime.now();
-
-    final accuracyMeters = position.accuracy;
-    if (accuracyMeters > _maxAllowedAccuracyMeters) return;
-
-    LatLng filteredLocation;
-    if (_lastFilteredLocation == null) {
-      filteredLocation = rawLocation;
-    } else {
-      final lat = (_smoothingFactor * rawLocation.latitude) + ((1 - _smoothingFactor) * _lastFilteredLocation!.latitude);
-      final lon = (_smoothingFactor * rawLocation.longitude) + ((1 - _smoothingFactor) * _lastFilteredLocation!.longitude);
-      filteredLocation = LatLng(lat, lon);
-    }
-    _lastFilteredLocation = filteredLocation;
-
-    final currentSpeedKmhReported = (position.speed * 3.6).clamp(0.0, 200.0);
-    final isSpeedImplausible = currentSpeedKmhReported > _maxPlausibleSpeedKmh;
-
-    double newDistance = _currentData.distanceKm;
-    if (_currentData.routePoints.isNotEmpty) {
-      final lastPoint = _currentData.routePoints.last;
-      final distance = _calculateDistance(lastPoint.latitude, lastPoint.longitude, filteredLocation.latitude, filteredLocation.longitude);
-      final timeDeltaSeconds = max(1, currentTime.difference(_currentData.lastUpdateTime ?? currentTime).inSeconds);
-      final impliedSpeedKmh = (distance / (timeDeltaSeconds / 3600.0));
-      final isImpliedSpeedImplausible = impliedSpeedKmh > _maxPlausibleSpeedKmh;
-      if (!isSpeedImplausible && !isImpliedSpeedImplausible && distance >= _minDistanceKmToAdd) {
-        newDistance += distance;
-      }
-    }
-
-    final newSpeeds = List<double>.from(_currentData.speeds);
-    double speedToAdd = currentSpeedKmhReported;
-    if (isSpeedImplausible) {
-      final lastPoint = _currentData.routePoints.isNotEmpty ? _currentData.routePoints.last : null;
-      if (lastPoint != null) {
-        final lastTime = _currentData.lastUpdateTime ?? currentTime;
-        final dt = max(1, currentTime.difference(lastTime).inSeconds);
-        final distKm = _calculateDistance(lastPoint.latitude, lastPoint.longitude, filteredLocation.latitude, filteredLocation.longitude);
-        final estimatedKmh = (distKm / (dt / 3600.0));
-        speedToAdd = estimatedKmh.clamp(0.0, _maxPlausibleSpeedKmh);
-      } else {
-        speedToAdd = 0.0;
-      }
-    }
-    newSpeeds.add(speedToAdd);
-
-    final filteredSpeedsForAvg = newSpeeds.where((s) => s >= 0.5 && s <= _maxPlausibleSpeedKmh).toList();
-    final averageSpeed = filteredSpeedsForAvg.isEmpty ? 0.0 : filteredSpeedsForAvg.reduce((a, b) => a + b) / filteredSpeedsForAvg.length;
-    final maxSpeed = newSpeeds.isEmpty ? speedToAdd : max(_currentData.maxSpeedKmh, speedToAdd);
-
-    final newRoutePoints = List<LatLng>.from(_currentData.routePoints);
-    if (_currentData.routePoints.isEmpty || _calculateDistance(_currentData.routePoints.last.latitude, _currentData.routePoints.last.longitude, filteredLocation.latitude, filteredLocation.longitude) > 0.005) {
-      newRoutePoints.add(filteredLocation);
-    }
-
-    _currentData = _currentData.copyWith(
-      currentLocation: filteredLocation,
-      currentSpeedKmh: speedToAdd,
-      averageSpeedKmh: averageSpeed,
-      maxSpeedKmh: maxSpeed,
-      distanceKm: newDistance,
-      routePoints: newRoutePoints,
-      speeds: newSpeeds,
-      lastUpdateTime: currentTime,
-    );
-
-    _trackingController.add(_currentData);
-  }
-
-  void _onTimerUpdate(Timer timer) {
-    if (!_currentData.isTracking || _currentData.startTime == null) return;
-
-    final now = DateTime.now();
-    Duration totalElapsed = now.difference(_currentData.startTime!);
-    Duration currentPauseTime = Duration.zero;
-    if (_currentData.isPaused && _currentData.pauseStartTime != null) {
-      currentPauseTime = now.difference(_currentData.pauseStartTime!);
-    }
-    final realElapsed = totalElapsed - _currentData.totalPausedTime - currentPauseTime;
-    _currentData = _currentData.copyWith(elapsedTime: realElapsed);
-    _trackingController.add(_currentData);
-  }
-
-  double _calculateDistance(double lat1, double lon1, double lat2, double lon2) {
-    const Distance distance = Distance();
-    return distance.as(LengthUnit.Kilometer, LatLng(lat1, lon1), LatLng(lat2, lon2));
+    _state = LiveTrackingData();
+    _controller.add(_state);
   }
 
   Future<LatLng?> getCurrentLocation() async {
     try {
-      final hasPermission = await checkAndRequestPermissions();
-      if (!hasPermission) return null;
-      final position = await Geolocator.getCurrentPosition();
-      return LatLng(position.latitude, position.longitude);
-    } catch (e) {
+      final ok = await checkAndRequestPermissions();
+      if (!ok) return null;
+      final p = await Geolocator.getCurrentPosition();
+      return LatLng(p.latitude, p.longitude);
+    } catch (_) {
       return null;
     }
   }
 
   void dispose() {
-    _positionStream?.cancel();
-    _trackingTimer?.cancel();
-    _trackingController.close();
+    _positionSub?.cancel();
+    _timer?.cancel();
+    _pollTimer?.cancel();
+    _controller.close();
+  }
+
+  // Internal tick to update elapsed time
+  void _tick() {
+    if (!_state.isTracking || _state.startTime == null) return;
+    final now = DateTime.now();
+    var totalElapsed = now.difference(_state.startTime!);
+    var currentPause = Duration.zero;
+    if (_state.isPaused && _state.pauseStartTime != null) {
+      currentPause = now.difference(_state.pauseStartTime!);
+    }
+    final real = totalElapsed - _state.totalPausedTime - currentPause;
+    _state = _state.copyWith(elapsedTime: real);
+    _controller.add(_state);
+  }
+
+  void _onPosition(Position p) {
+    if (!_state.isTracking || _state.isPaused) return;
+    final point = LatLng(p.latitude, p.longitude);
+    final last = _state.routePoints.isNotEmpty ? _state.routePoints.last : null;
+
+    double addMeters = 0.0;
+    if (last != null) {
+      addMeters = _distance.as(LengthUnit.Meter, last, point);
+    }
+
+    // DEBUG: show incoming fix details
+    if (debugMode) {
+      try {
+        // ignore: avoid_print
+        print('[LocationPos] lat=${point.latitude.toStringAsFixed(6)} lon=${point.longitude.toStringAsFixed(6)} acc=${p.accuracy.toStringAsFixed(1)}m speed=${(p.speed*3.6).toStringAsFixed(1)}km/h addMeters=${addMeters.toStringAsFixed(2)} minReq=${_minMetersToAdd.toStringAsFixed(2)}');
+      } catch (_) {}
+    }
+
+    if (last == null || addMeters >= _minMetersToAdd) {
+      final newPoints = List<LatLng>.from(_state.routePoints)..add(point);
+      final newDistance = _state.distanceKm + (addMeters / 1000.0);
+      final speedKmh = (p.speed * 3.6).clamp(0.0, 200.0);
+      final newSpeeds = List<double>.from(_state.speeds)..add(speedKmh);
+      final filteredSpeeds = newSpeeds.where((s) => s >= 0.5).toList();
+      final avg = filteredSpeeds.isEmpty ? 0.0 : filteredSpeeds.reduce((a, b) => a + b) / filteredSpeeds.length;
+      final maxSpeed = newSpeeds.isEmpty ? speedKmh : _state.maxSpeedKmh > speedKmh ? _state.maxSpeedKmh : speedKmh;
+
+      _state = _state.copyWith(
+        currentLocation: point,
+        lastUpdateTime: DateTime.now(),
+        routePoints: newPoints,
+        distanceKm: newDistance,
+        speeds: newSpeeds,
+        currentSpeedKmh: speedKmh,
+        averageSpeedKmh: avg,
+        maxSpeedKmh: maxSpeed,
+      );
+
+      _controller.add(_state);
+    }
   }
 }
