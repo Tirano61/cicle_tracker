@@ -1,9 +1,12 @@
 import 'dart:async';
 
+import 'package:flutter_background_service/flutter_background_service.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:wakelock_plus/wakelock_plus.dart';
 
 import '../models/live_tracking_data.dart';
+import 'background_service.dart';
 
 /// Clean, single-definition LocationService.
 class LocationService {
@@ -51,6 +54,18 @@ class LocationService {
     if (!ok) return false;
 
     try {
+      // Activar WakeLock para mantener la CPU activa durante tracking
+      if (!await WakelockPlus.enabled) {
+        await WakelockPlus.enable();
+      }
+      
+      // Solo iniciar el servicio de background si no está corriendo
+      final service = FlutterBackgroundService();
+      bool isRunning = await service.isRunning();
+      if (!isRunning) {
+        await BackgroundLocationService.startTracking();
+      }
+
       final pos = await Geolocator.getCurrentPosition();
       final initial = LatLng(pos.latitude, pos.longitude);
       if (debugMode) {
@@ -69,7 +84,12 @@ class LocationService {
 
       _controller.add(_state);
 
-  _positionSub = Geolocator.getPositionStream(locationSettings: _locationSettings).listen(_onPosition, onError: (e) {});
+      _positionSub = Geolocator.getPositionStream(locationSettings: _locationSettings).listen(_onPosition, onError: (e) {
+        if (debugMode) {
+          // ignore: avoid_print
+          print('[LocationService] Position stream error: $e');
+        }
+      });
       _timer = Timer.periodic(const Duration(seconds: 1), (_) => _tick());
 
       // Adjust thresholds for debug mode to increase sample density
@@ -84,25 +104,40 @@ class LocationService {
         try {
           final p2 = await Geolocator.getCurrentPosition();
           _onPosition(p2);
-        } catch (_) {
-          // ignore polling errors
+        } catch (e) {
+          if (debugMode) {
+            // ignore: avoid_print
+            print('[LocationService] Polling error: $e');
+          }
         }
       });
 
       return true;
     } catch (e) {
+      if (debugMode) {
+        // ignore: avoid_print
+        print('[LocationService] Error starting tracking: $e');
+      }
       return false;
     }
   }
 
   void pauseTracking() {
     if (!_state.isTracking || _state.isPaused) return;
+    
+    // Pausar el servicio de background
+    BackgroundLocationService.pauseTracking();
+    
     _state = _state.copyWith(isPaused: true, pauseStartTime: DateTime.now());
     _controller.add(_state);
   }
 
   void resumeTracking() {
     if (!_state.isTracking || !_state.isPaused) return;
+    
+    // Reanudar el servicio de background
+    BackgroundLocationService.resumeTracking();
+    
     var additional = Duration.zero;
     if (_state.pauseStartTime != null) {
       additional = DateTime.now().difference(_state.pauseStartTime!);
@@ -116,6 +151,21 @@ class LocationService {
   }
 
   void stopTracking() {
+    // Detener el servicio de background
+    BackgroundLocationService.stopTracking();
+    
+    // Desactivar WakeLock solo si está activo
+    WakelockPlus.enabled.then((isEnabled) {
+      if (isEnabled) {
+        WakelockPlus.disable();
+      }
+    }).catchError((e) {
+      if (debugMode) {
+        // ignore: avoid_print
+        print('[LocationService] Error disabling WakeLock: $e');
+      }
+    });
+    
     _positionSub?.cancel();
     _positionSub = null;
     _timer?.cancel();
@@ -176,6 +226,34 @@ class LocationService {
     double addMeters = 0.0;
     if (last != null) {
       addMeters = _distance.as(LengthUnit.Meter, last, point);
+    }
+
+    // Outlier filtering: ignore improbable jumps based on reported accuracy and speed
+    final accuracy = p.accuracy; // meters
+    final speedKmh = (p.speed * 3.6).clamp(0.0, 300.0);
+    bool isOutlier = false;
+    // If accuracy is very poor and speed is low, and the jump is much larger than accuracy * 3 (+ buffer), drop
+    // NOTE: relax this rule for high-speed readings (they can legitimately cover large distances between fixes)
+    if (accuracy > 0 && addMeters > (accuracy * 3.0 + 30.0) && speedKmh < 25.0) {
+      isOutlier = true;
+    }
+    // If device reports very poor accuracy overall, avoid accepting fixes when speed is low
+    if (accuracy > 100.0 && speedKmh < 10.0 && addMeters > 20.0) {
+      isOutlier = true;
+    }
+    // If speed is essentially zero but we see a sudden large jump, likely a bad fix
+    if (speedKmh < 3.0 && addMeters > 50.0) {
+      isOutlier = true;
+    }
+
+    if (isOutlier) {
+      if (debugMode) {
+        try {
+          // ignore: avoid_print
+          print('[LocationService] Ignored outlier addMeters=${addMeters.toStringAsFixed(1)} acc=${accuracy.toStringAsFixed(1)} speed=${speedKmh.toStringAsFixed(1)}');
+        } catch (_) {}
+      }
+      return;
     }
 
     // DEBUG: show incoming fix details
