@@ -1,43 +1,11 @@
-0+-
-
-4+11-2222222
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-0.import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'screens/tracking_screen.dart';
 import 'widgets/splash_screen.dart';
 import 'controllers/tracking_controller.dart';
 import 'services/background_service.dart';
 
-º
-
-+ 
-
-ººººººººººººººººººººººººººººººººvoid main() async {
+void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   
   // Solo inicializar el servicio de background una vez

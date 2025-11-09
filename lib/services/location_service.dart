@@ -260,7 +260,7 @@ class LocationService {
     if (debugMode) {
       try {
         // ignore: avoid_print
-        print('[LocationPos] lat=${point.latitude.toStringAsFixed(6)} lon=${point.longitude.toStringAsFixed(6)} acc=${p.accuracy.toStringAsFixed(1)}m speed=${(p.speed*3.6).toStringAsFixed(1)}km/h addMeters=${addMeters.toStringAsFixed(2)} minReq=${_minMetersToAdd.toStringAsFixed(2)}');
+        print('[LocationPos] lat=${point.latitude.toStringAsFixed(6)} lon=${point.longitude.toStringAsFixed(6)} acc=${p.accuracy.toStringAsFixed(1)}m speed=${(p.speed*3.6).toStringAsFixed(1)}km/h heading=${p.heading.toStringAsFixed(1)}° addMeters=${addMeters.toStringAsFixed(2)} minReq=${_minMetersToAdd.toStringAsFixed(2)}');
       } catch (_) {}
     }
 
@@ -272,6 +272,17 @@ class LocationService {
       final filteredSpeeds = newSpeeds.where((s) => s >= 0.5).toList();
       final avg = filteredSpeeds.isEmpty ? 0.0 : filteredSpeeds.reduce((a, b) => a + b) / filteredSpeeds.length;
       final maxSpeed = newSpeeds.isEmpty ? speedKmh : _state.maxSpeedKmh > speedKmh ? _state.maxSpeedKmh : speedKmh;
+      
+      // Procesar heading (dirección del GPS)
+      double? heading;
+      if (p.heading >= 0 && p.heading <= 360) {
+        heading = p.heading;
+      }
+      
+      // Debug: Log del heading
+      if (debugMode) {
+        print('[LocationService] GPS Heading: ${p.heading}° -> ${heading ?? 'invalid'}°');
+      }
 
       _state = _state.copyWith(
         currentLocation: point,
@@ -282,6 +293,7 @@ class LocationService {
         currentSpeedKmh: speedKmh,
         averageSpeedKmh: avg,
         maxSpeedKmh: maxSpeed,
+        currentHeading: heading,
       );
 
       _controller.add(_state);

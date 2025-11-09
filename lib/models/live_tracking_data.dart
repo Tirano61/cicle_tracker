@@ -16,6 +16,7 @@ class LiveTrackingData {
   final DateTime? lastUpdateTime;
   final DateTime? pauseStartTime;
   final Duration totalPausedTime;
+  final double? currentHeading; // degrees, 0° = North
 
   LiveTrackingData({
     this.currentSpeedKmh = 0.0,
@@ -33,6 +34,7 @@ class LiveTrackingData {
     this.lastUpdateTime,
     this.pauseStartTime,
     this.totalPausedTime = Duration.zero,
+    this.currentHeading,
   });
 
   // Crear copia con cambios
@@ -52,6 +54,7 @@ class LiveTrackingData {
     DateTime? lastUpdateTime,
     DateTime? pauseStartTime,
     Duration? totalPausedTime,
+    double? currentHeading,
   }) {
     return LiveTrackingData(
       currentSpeedKmh: currentSpeedKmh ?? this.currentSpeedKmh,
@@ -69,6 +72,7 @@ class LiveTrackingData {
       lastUpdateTime: lastUpdateTime ?? this.lastUpdateTime,
       pauseStartTime: pauseStartTime ?? this.pauseStartTime,
       totalPausedTime: totalPausedTime ?? this.totalPausedTime,
+      currentHeading: currentHeading ?? this.currentHeading,
     );
   }
 
@@ -90,6 +94,7 @@ class LiveTrackingData {
       lastUpdateTime: null,
       pauseStartTime: null,
       totalPausedTime: Duration.zero,
+      currentHeading: null,
     );
   }
 
