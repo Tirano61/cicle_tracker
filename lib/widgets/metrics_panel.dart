@@ -39,7 +39,7 @@ class MetricsPanel extends StatelessWidget {
             unit: _getSpeedUnit(),
           ),
           
-          const SizedBox(height: 16),
+          const SizedBox(height: 12),
           
           // Fila principal de métricas
           Row(
@@ -102,10 +102,10 @@ class MetricsPanel extends StatelessWidget {
           // Estado del tracking
           if (trackingData.isTracking)
             Container(
-              margin: const EdgeInsets.only(top: 12),
+              margin: const EdgeInsets.only(top: 8),
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-      decoration: BoxDecoration(
-                  color: trackingData.isPaused ? Theme.of(context).colorScheme.secondary : scheme.primary,
+              decoration: BoxDecoration(
+                color: trackingData.isPaused ? Theme.of(context).colorScheme.secondary : Colors.red,
                 borderRadius: BorderRadius.circular(20),
               ),
               child: Row(
@@ -120,7 +120,7 @@ class MetricsPanel extends StatelessWidget {
                   Text(
                     trackingData.isPaused ? 'PAUSADO' : 'GRABANDO',
                     style: TextStyle(
-                      color: scheme.onPrimary,
+                      color: trackingData.isPaused ? scheme.onPrimary : Colors.white,
                       fontSize: 12,
                       fontWeight: FontWeight.bold,
                     ),
@@ -194,7 +194,7 @@ class MetricsPanel extends StatelessWidget {
     return Expanded(
       child: Container(
         margin: const EdgeInsets.symmetric(horizontal: 4),
-        padding: EdgeInsets.all(isSmaller ? 8 : 12),
+        padding: EdgeInsets.all(isSmaller ? 5 : 8),
         decoration: BoxDecoration(
           color: Colors.grey[50],
           borderRadius: BorderRadius.circular(12),
@@ -216,7 +216,7 @@ class MetricsPanel extends StatelessWidget {
                   Text(
                     title,
                     style: TextStyle(
-                      fontSize: isSmaller ? 10 : 11,
+                      fontSize: isSmaller ? 10 : 12,
                       fontWeight: FontWeight.w600,
                         color: Theme.of(context).colorScheme.onSurface.withAlpha((0.7 * 255).round()),
                     ),
@@ -229,7 +229,7 @@ class MetricsPanel extends StatelessWidget {
                         child: Text(
                           value,
                           style: TextStyle(
-                            fontSize: isSmaller ? 14 : 16,
+                            fontSize: isSmaller ? 16 : 20,
                             fontWeight: FontWeight.bold,
                             color: color,
                           ),
