@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
 import '../models/cycling_session.dart';
+import '../models/imported_route.dart';
 
 class DatabaseService {
   static final DatabaseService _instance = DatabaseService._internal();
@@ -22,8 +23,23 @@ class DatabaseService {
 
     return await openDatabase(
       path,
-      version: 1,
+      version: 2,
       onCreate: _createDatabase,
+      onUpgrade: (db, oldVersion, newVersion) async {
+        if (oldVersion < 2) {
+          await db.execute('''
+            CREATE TABLE imported_routes (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              name TEXT,
+              description TEXT,
+              gpx_text TEXT,
+              route_points TEXT NOT NULL,
+              distance_km REAL NOT NULL DEFAULT 0,
+              created_at INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000)
+            )
+          ''');
+        }
+      },
     );
   }
 
@@ -52,6 +68,18 @@ class DatabaseService {
 
     await db.execute('''
       CREATE INDEX idx_cycling_sessions_completed ON cycling_sessions(isCompleted)
+    ''');
+    // Asegurar que la tabla imported_routes exista en creación nueva
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS imported_routes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT,
+        description TEXT,
+        gpx_text TEXT,
+        route_points TEXT NOT NULL,
+        distance_km REAL NOT NULL DEFAULT 0,
+        created_at INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000)
+      )
     ''');
   }
 
@@ -196,5 +224,22 @@ class DatabaseService {
     final db = await database;
     await db.close();
     _database = null;
+  }
+
+  // CRUD para rutas importadas
+  Future<int> insertImportedRoute(ImportedRoute route) async {
+    final db = await database;
+    return await db.insert('imported_routes', route.toMap());
+  }
+
+  Future<List<ImportedRoute>> getAllImportedRoutes() async {
+    final db = await database;
+    final maps = await db.query('imported_routes', orderBy: 'created_at DESC');
+    return maps.map((m) => ImportedRoute.fromMap(m)).toList();
+  }
+
+  Future<int> deleteImportedRoute(int id) async {
+    final db = await database;
+    return await db.delete('imported_routes', where: 'id = ?', whereArgs: [id]);
   }
 }
