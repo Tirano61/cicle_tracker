@@ -17,9 +17,12 @@ import '../widgets/tracking_controls.dart';
 import '../widgets/cached_tile_layer.dart';
 import '../widgets/map_provider_selector.dart';
 import '../models/map_tile_provider.dart';
+import '../widgets/gpx_import_sheet.dart';
+import '../models/imported_route.dart';
 import 'history_screen.dart';
 import 'settings_screen.dart';
 import 'argentina_download_screen.dart';
+import 'routes_library_screen.dart';
 import '../services/map_cache_service.dart';
 
 class TrackingScreen extends StatefulWidget {
@@ -36,6 +39,7 @@ class _TrackingScreenState extends State<TrackingScreen> {
   // calorie calculator is handled by TrackingController
   late final TrackingController _trackingController;
   final MapController _mapController = MapController();
+  bool _isMapFullscreen = false;
   // Note: marker/polyline notifiers are provided by TrackingController
   int? _sessionMaxZoom;
   StreamSubscription<int?>? _sessionZoomSub;
@@ -50,6 +54,7 @@ class _TrackingScreenState extends State<TrackingScreen> {
   // Listener references so we can remove them on dispose
   VoidCallback? _markerListener;
   VoidCallback? _metricsListener;
+  VoidCallback? _importedRouteListener;
   UserSettings _userSettings = UserSettings();
   // Animated marker state to smooth visual jumps
   LatLng? _markerAnimatedPos;
@@ -96,6 +101,19 @@ class _TrackingScreenState extends State<TrackingScreen> {
     };
     _trackingController.markerNotifier.addListener(_markerListener!);
     _trackingController.metricsNotifier.addListener(_metricsListener!);
+    // Listen for imported route changes (e.g., from library) to center the map
+    _importedRouteListener = () {
+      final pts = _trackingController.importedRouteNotifier.value;
+      if (pts.isNotEmpty && _isMapReady) {
+        try {
+          final center = _computeCenter(pts);
+          final zoom = _approxZoomForPoints(pts);
+          _mapController.move(center, zoom);
+          _showSnackBar('Ruta cargada desde biblioteca', Theme.of(context).colorScheme.primary);
+        } catch (_) {}
+      }
+    };
+    _trackingController.importedRouteNotifier.addListener(_importedRouteListener!);
 
     // Escuchar cambios en el session max zoom
     _sessionZoomSub = MapCacheService().sessionZoomStream.listen((z) {
@@ -112,6 +130,9 @@ class _TrackingScreenState extends State<TrackingScreen> {
     }
     if (_metricsListener != null) {
       _trackingController.metricsNotifier.removeListener(_metricsListener!);
+    }
+    if (_importedRouteListener != null) {
+      _trackingController.importedRouteNotifier.removeListener(_importedRouteListener!);
     }
     // controller is provided at app level; do not dispose it here
     super.dispose();
@@ -158,6 +179,29 @@ class _TrackingScreenState extends State<TrackingScreen> {
     });
   }
 
+  LatLng _computeCenter(List<LatLng> pts) {
+    final lat = pts.map((p) => p.latitude).reduce((a, b) => a + b) / pts.length;
+    final lon = pts.map((p) => p.longitude).reduce((a, b) => a + b) / pts.length;
+    return LatLng(lat, lon);
+  }
+
+  double _approxZoomForPoints(List<LatLng> pts) {
+    try {
+      final lats = pts.map((p) => p.latitude);
+      final lons = pts.map((p) => p.longitude);
+      final latDiff = lats.reduce((a, b) => a > b ? a : b) - lats.reduce((a, b) => a < b ? a : b);
+      final lonDiff = lons.reduce((a, b) => a > b ? a : b) - lons.reduce((a, b) => a < b ? a : b);
+      final span = latDiff > lonDiff ? latDiff : lonDiff;
+      if (span < 0.002) return 15.0;
+      if (span < 0.01) return 14.0;
+      if (span < 0.05) return 13.0;
+      if (span < 0.2) return 12.0;
+      return 10.0;
+    } catch (_) {
+      return 13.0;
+    }
+  }
+
   double _lerpDouble(double a, double b, double t) => a + (b - a) * t;
 
   // Note: controller disposed in earlier dispose(); cleanup local animations below
@@ -202,6 +246,31 @@ class _TrackingScreenState extends State<TrackingScreen> {
 
     if (!mounted) return;
     _showSnackBar('¡Tracking iniciado!', Theme.of(context).colorScheme.primary);
+    // Si hay una ruta importada, intentar iniciar navegación automática si estamos cerca
+    try {
+      final loc = await _locationService.getCurrentLocation();
+      if (loc != null) {
+        final autoStarted = _trackingController.attemptAutoStartNavigation(loc, thresholdMeters: 50.0);
+        if (autoStarted) {
+          _showSnackBar('Navegación iniciada automáticamente', Theme.of(context).colorScheme.primary);
+        } else {
+          // Mostrar snackbar con acción para iniciar navegación manualmente
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: const Text('Ruta cargada pero estás lejos del inicio'),
+              action: SnackBarAction(
+                label: 'Iniciar navegación',
+                onPressed: () {
+                  _trackingController.startNavigation();
+                  _showSnackBar('Navegación iniciada', Theme.of(context).colorScheme.primary);
+                },
+              ),
+              duration: const Duration(seconds: 6),
+            ),
+          );
+        }
+      }
+    } catch (_) {}
   }
 
   void _pauseTracking() {
@@ -349,7 +418,7 @@ class _TrackingScreenState extends State<TrackingScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
+      appBar: _isMapFullscreen ? null : AppBar(
         title: const Text('🚴‍♂️ CycleTracker'),
         backgroundColor: Theme.of(context).colorScheme.primary,
         foregroundColor: Theme.of(context).colorScheme.onPrimary,
@@ -361,6 +430,38 @@ class _TrackingScreenState extends State<TrackingScreen> {
             currentProvider: _currentMapProvider,
             onProviderChanged: _changeMapProvider,
             isCompact: true,
+          ),
+          IconButton(
+            icon: const Icon(Icons.upload_file),
+            tooltip: 'Importar GPX',
+            onPressed: () {
+              showModalBottomSheet(
+                context: context,
+                isScrollControlled: true,
+                builder: (ctx) => GpxImportSheet(
+                  onLoad: (ImportedRoute r) {
+                    try {
+                      _trackingController.loadImportedRoute(r.points);
+                      // Center map on imported route
+                      try {
+                        final center = _computeCenter(r.points);
+                        final zoom = _approxZoomForPoints(r.points);
+                        if (_isMapReady) _mapController.move(center, zoom);
+                      } catch (_) {}
+                      _showSnackBar('Ruta "${r.name}" cargada', Theme.of(context).colorScheme.primary);
+                    } catch (_) {}
+                  },
+                ),
+              );
+            },
+          ),
+          IconButton(
+            icon: const Icon(Icons.list),
+            tooltip: 'Rutas guardadas',
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (context) => const RoutesLibraryScreen()),
+            ),
           ),
           IconButton(
             icon: const Icon(Icons.download),
@@ -477,6 +578,22 @@ class _TrackingScreenState extends State<TrackingScreen> {
                     );
                   },
                 ),
+                // Imported route layer (GPX) - drawn in blue
+                ValueListenableBuilder<List<LatLng>>(
+                  valueListenable: _trackingController.importedRouteNotifier,
+                  builder: (context, points, child) {
+                    if (points.isEmpty) return const SizedBox.shrink();
+                    return PolylineLayer(
+                      polylines: [
+                        Polyline(
+                          points: points,
+                          strokeWidth: 4.0,
+                          color: Colors.blueAccent,
+                        ),
+                      ],
+                    );
+                  },
+                ),
                 // Realtime trailing polyline (shows recent movement smoothly)
                 ValueListenableBuilder<List<LatLng>>(
                   valueListenable: _trackingController.polylineRealtimeNotifier,
@@ -519,6 +636,7 @@ class _TrackingScreenState extends State<TrackingScreen> {
                     );
                   },
                 ),
+                // NOTE: fullscreen button & speed readout moved outside FlutterMap children
                   ],
                 ),
 
@@ -551,25 +669,105 @@ class _TrackingScreenState extends State<TrackingScreen> {
                   top: 16,
                   child: _buildCompassBar(_currentHeading),
                 ),
+                // Fullscreen toggle button (transparent) - moved here so it's visible above the map
+                Positioned(
+                  left: 12,
+                  top: 12,
+                  child: GestureDetector(
+                    onTap: () => setState(() => _isMapFullscreen = !_isMapFullscreen),
+                    child: Container(
+                      width: 44,
+                      height: 44,
+                      decoration: BoxDecoration(
+                        color: Colors.black.withOpacity(0.12),
+                        shape: BoxShape.circle,
+                      ),
+                      child: Icon(_isMapFullscreen ? Icons.fullscreen_exit : Icons.fullscreen, color: Colors.white, size: 20),
+                    ),
+                  ),
+                ),
+
+                // Small speed readout when fullscreen is active (overlayed)
+                if (_isMapFullscreen)
+                  Positioned(
+                    bottom: 24,
+                    left: 0,
+                    right: 0,
+                    child: Center(
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withOpacity(0.5),
+                          borderRadius: BorderRadius.circular(24),
+                        ),
+                        child: Text(
+                          '${_trackingData.currentSpeedKmh?.toStringAsFixed(1) ?? '0.0'} km/h',
+                          style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+                        ),
+                      ),
+                    ),
+                  ),
+                // Maneuver overlay - muestra la próxima instrucción si existe
+                Positioned(
+                  top: 90,
+                  left: 16,
+                  right: 16,
+                  child: ValueListenableBuilder(
+                    valueListenable: _trackingController.currentManeuverNotifier,
+                    builder: (context, value, child) {
+                      final instr = value as dynamic;
+                      if (instr == null) return const SizedBox.shrink();
+                      final turnText = (instr.turn == 'right') ? 'gira a la derecha' : 'gira a la izquierda';
+                      final distText = instr.distanceMeters >= 1000 ? '${(instr.distanceMeters/1000).toStringAsFixed(1)} km' : '${instr.distanceMeters.toStringAsFixed(0)} m';
+                      return Align(
+                        alignment: Alignment.topCenter,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                          decoration: BoxDecoration(
+                            color: Colors.black.withOpacity(0.7),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(instr.turn == 'right' ? Icons.turn_right : Icons.turn_left, color: Colors.white, size: 28),
+                              const SizedBox(width: 12),
+                              Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(distText, style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+                                  const SizedBox(height: 2),
+                                  Text(turnText, style: const TextStyle(color: Colors.white70, fontSize: 14)),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
               ],
             ),
           ),
           
-          // Panel de métricas
-          MetricsPanel(
-            trackingData: _trackingData,
-            userSettings: _userSettings,
-          ),
+          // Panel de métricas (oculto en fullscreen)
+          if (!_isMapFullscreen)
+            MetricsPanel(
+              trackingData: _trackingData,
+              userSettings: _userSettings,
+            ),
           
-          // Controles de tracking
-          TrackingControls(
-            isTracking: _trackingData.isTracking,
-            isPaused: _trackingData.isPaused,
-            onStart: _startTracking,
-            onPause: _pauseTracking,
-            onResume: _resumeTracking,
-            onStop: _stopTracking,
-          ),
+          // Controles de tracking (ocultos en fullscreen)
+          if (!_isMapFullscreen)
+            TrackingControls(
+              isTracking: _trackingData.isTracking,
+              isPaused: _trackingData.isPaused,
+              onStart: _startTracking,
+              onPause: _pauseTracking,
+              onResume: _resumeTracking,
+              onStop: _stopTracking,
+            ),
         ],
       ),
       
