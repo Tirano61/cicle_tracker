@@ -89,9 +89,9 @@ class _CycleAppState extends State<CycleApp> with WidgetsBindingObserver {
             centerTitle: true,
             elevation: 0,
             backgroundColor: ColorScheme.fromSeed(seedColor: const Color(0xFF764BA2)).primary,
-            foregroundColor: ThemeData().colorScheme.onPrimary,
+            foregroundColor: ColorScheme.fromSeed(seedColor: const Color(0xFF764BA2)).onPrimary,
           ),
-          cardTheme: CardTheme(
+          cardTheme: CardThemeData( // Corregido: ahora es CardThemeData en lugar de CardTheme
             elevation: 2,
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(12),
@@ -100,7 +100,7 @@ class _CycleAppState extends State<CycleApp> with WidgetsBindingObserver {
           elevatedButtonTheme: ElevatedButtonThemeData(
               style: ElevatedButton.styleFrom(
               backgroundColor: ColorScheme.fromSeed(seedColor: const Color(0xFF764BA2)).primary,
-              foregroundColor: ThemeData().colorScheme.onPrimary,
+              foregroundColor: ColorScheme.fromSeed(seedColor: const Color(0xFF764BA2)).onPrimary,
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(8),
               ),
@@ -125,3 +125,4 @@ class _CycleAppState extends State<CycleApp> with WidgetsBindingObserver {
     );
   }
 }
+
