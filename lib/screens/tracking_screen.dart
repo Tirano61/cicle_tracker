@@ -680,17 +680,20 @@ class _TrackingScreenState extends State<TrackingScreen> {
                 // Fullscreen toggle button (transparent) - moved here so it's visible above the map
                 Positioned(
                   left: 12,
-                  top: 12,
+                  top: 76, // debajo de la barra de brújula (top 16 + alto 50)
                   child: GestureDetector(
                     onTap: () => setState(() => _isMapFullscreen = !_isMapFullscreen),
                     child: Container(
                       width: 44,
                       height: 44,
                       decoration: BoxDecoration(
-                        color: Colors.black.withOpacity(0.12),
+                        color: Theme.of(context).colorScheme.primary,
                         shape: BoxShape.circle,
+                        boxShadow: const [
+                          BoxShadow(color: Colors.black26, blurRadius: 4, offset: Offset(0, 2)),
+                        ],
                       ),
-                      child: Icon(_isMapFullscreen ? Icons.fullscreen_exit : Icons.fullscreen, color: Colors.white, size: 20),
+                      child: Icon(_isMapFullscreen ? Icons.fullscreen_exit : Icons.fullscreen, color: Theme.of(context).colorScheme.onPrimary, size: 24),
                     ),
                   ),
                 ),
@@ -698,11 +701,13 @@ class _TrackingScreenState extends State<TrackingScreen> {
                 // Small speed readout when fullscreen is active (overlayed)
                 if (_isMapFullscreen)
                   Positioned(
+                    top: 10,
                     bottom: 24,
                     left: 0,
                     right: 0,
                     child: Center(
                       child: Container(
+                        margin: EdgeInsets.only(top: 10),
                         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                         decoration: BoxDecoration(
                           color: Colors.black.withOpacity(0.5),
