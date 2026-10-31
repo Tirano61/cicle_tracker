@@ -18,6 +18,7 @@ import '../widgets/cached_tile_layer.dart';
 import '../widgets/map_provider_selector.dart';
 import '../models/map_tile_provider.dart';
 import '../widgets/gpx_import_sheet.dart';
+import '../widgets/map_clock.dart';
 import '../models/imported_route.dart';
 import 'history_screen.dart';
 import 'settings_screen.dart';
@@ -660,6 +661,13 @@ class _TrackingScreenState extends State<TrackingScreen> {
                     },
                     child: const Icon(Icons.my_location),
                   ),
+                ),
+
+                // Overlay: hora actual en la parte inferior izquierda
+                const Positioned(
+                  left: 12,
+                  bottom: 16,
+                  child: MapClock(),
                 ),
 
                 // Overlay: barra de puntos cardinales con indicador central
